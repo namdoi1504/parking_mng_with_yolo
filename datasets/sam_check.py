@@ -22,8 +22,8 @@ results = model(input_image, points=[[1097, 23], [1135, 12], [1178, 16], [1225, 
 
 image = results[0].plot(labels=False, conf=False)
 #
-cv2.namedWindow("test", cv2.WINDOW_NORMAL)   # cho phép resize cửa sổ
-cv2.resizeWindow("test", 1280, 720)          # đặt kích thước cửa sổ vừa màn hình
+cv2.namedWindow("test", cv2.WINDOW_NORMAL)
+cv2.resizeWindow("test", 1280, 720)
 cv2.imshow("test", image)
 cv2.waitKey(0)
 cv2.destroyAllWindows()

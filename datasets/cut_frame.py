@@ -1,7 +1,7 @@
 import cv2
 import os
 
-video_path = 'video/video6_1080p.mp4'
+video_path = 'parking_car.mp4'
 output_dir = 'images_frame'
 os.makedirs(output_dir, exist_ok=True)
 
@@ -18,7 +18,7 @@ while t < duration:
     cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
     ret, frame = cap.read()
     if ret:
-        filename = f"{output_dir}/frame4_t{int(t)}s.jpg"
+        filename = f"{output_dir}/frame_test{int(t)}s.jpg"
         cv2.imwrite(filename, frame)
         print(f"Đã lưu {filename}")
         count += 1

@@ -1,16 +1,18 @@
-.sam2.1_b.pt.1798c593753c443fa09999e988daf2de.part
-sam2.1_b.pt
-video1.mp4
+datasets/.sam2.1_b.pt.1798c593753c443fa09999e988daf2de.part
+datasets/sam2.1_b.pt
+datasets/video1.mp4
 .venv
-input.json
-output.json
-points.txt
-car.mp4
-car1.mp4
+datasets/input.json
+datasets/output.json
+datasets/points.txt
+datasets/car.mp4
+datasets/car1.mp4
 parking car.avi
-video
-images_frame
-data_test
+datasets/video
+datasets/images_frame
+Data_test
 datasets/output.mp4
-all_centers.py
-auto_convert.py
+datasets/all_centers.py
+datasets/auto_convert.py
+datasets/parking_car.mp4
+datasets/parking car result.avi
