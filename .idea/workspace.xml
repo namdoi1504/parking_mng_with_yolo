@@ -5,12 +5,116 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c28d90bd-1bf3-4137-996c-23addb512527" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/AI/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/AI/datasets/parking_car_result1.avi" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/AI/datasets/parking_plot.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/.env.example" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/app/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/app/config.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/app/db.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/app/main.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/app/models.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/app/routers/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/app/routers/ai.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/app/routers/parking.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/backend/app/schemas.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/datasets/bounding_boxes.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/datasets/cut_frame.py" beforeDir="false" afterPath="$PROJECT_DIR$/datasets/cut_frame.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/datasets/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/datasets/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/datasets/sam_check.py" beforeDir="false" afterPath="$PROJECT_DIR$/datasets/sam_check.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage1_t0s.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage1_t0s.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage2_t113s.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage2_t113s.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage3_t226s.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage3_t226s.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage4_t339s.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage4_t339s.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage5_t429s.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Data_test/stage5_t429s.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/auto_convert.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/bounding_boxes.json" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/bounding_boxes.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame1_t0s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame1_t0s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame1_t12s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame1_t12s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame1_t18s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame1_t18s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame1_t21s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame1_t21s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame1_t3s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame1_t3s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame1_t6s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame1_t6s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame2_t0s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame2_t0s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame2_t15s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame2_t15s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame2_t18s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame2_t18s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame2_t21s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame2_t21s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame2_t3s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame2_t3s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame2_t6s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame2_t6s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame3_t0s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame3_t0s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame3_t12s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame3_t12s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame3_t3s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame3_t3s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame3_t9s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame3_t9s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame4_t0s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame4_t0s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame4_t6s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame4_t6s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame_t0s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame_t0s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame_t12s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame_t12s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame_t15s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame_t15s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame_t18s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame_t18s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame_t27s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame_t27s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame_t30s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame_t30s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame_t3s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame_t3s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame_t6s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame_t6s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/train/frame_t9s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/train/frame_t9s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/val/frame1_t15s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/val/frame1_t15s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/val/frame1_t9s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/val/frame1_t9s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/val/frame2_t12s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/val/frame2_t12s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/val/frame2_t9s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/val/frame2_t9s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/val/frame3_t15s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/val/frame3_t15s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/val/frame3_t6s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/val/frame3_t6s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/val/frame4_t3s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/val/frame4_t3s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/val/frame_t21s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/val/frame_t21s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/images/val/frame_t24s.jpg" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/images/val/frame_t24s.jpg" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame1_t0s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame1_t0s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame1_t12s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame1_t12s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame1_t18s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame1_t18s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame1_t21s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame1_t21s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame1_t3s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame1_t3s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame1_t6s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame1_t6s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame2_t0s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame2_t0s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame2_t15s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame2_t15s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame2_t18s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame2_t18s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame2_t21s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame2_t21s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame2_t3s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame2_t3s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame2_t6s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame2_t6s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame3_t0s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame3_t0s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame3_t12s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame3_t12s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame3_t3s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame3_t3s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame3_t9s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame3_t9s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame4_t0s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame4_t0s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame4_t6s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame4_t6s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame_t0s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame_t0s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame_t12s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame_t12s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame_t15s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame_t15s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame_t18s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame_t18s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame_t27s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame_t27s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame_t30s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame_t30s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame_t3s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame_t3s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame_t6s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame_t6s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/train/frame_t9s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/train/frame_t9s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/val/frame1_t15s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/val/frame1_t15s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/val/frame1_t9s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/val/frame1_t9s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/val/frame2_t12s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/val/frame2_t12s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/val/frame2_t9s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/val/frame2_t9s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/val/frame3_t15s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/val/frame3_t15s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/val/frame3_t6s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/val/frame3_t6s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/val/frame4_t3s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/val/frame4_t3s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/val/frame_t21s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/val/frame_t21s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars/labels/val/frame_t24s.txt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars/labels/val/frame_t24s.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cars_best.pt" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cars_best.pt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/convert.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/convert.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cut.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cut.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/cut_frame.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/cut_frame.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/download_and_extract.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/download_and_extract.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/sam_check.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/sam_check.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/sam_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/sam_test.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/datasets/slot_specification.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/slot_specification.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -39,38 +143,40 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;Python.all_centers.executor&quot;: &quot;Run&quot;,
-    &quot;Python.auto_convert.executor&quot;: &quot;Run&quot;,
-    &quot;Python.convert.executor&quot;: &quot;Run&quot;,
-    &quot;Python.cut.executor&quot;: &quot;Run&quot;,
-    &quot;Python.cut_frame.executor&quot;: &quot;Run&quot;,
-    &quot;Python.download_and_extract.executor&quot;: &quot;Run&quot;,
-    &quot;Python.main.executor&quot;: &quot;Run&quot;,
-    &quot;Python.sam_check.executor&quot;: &quot;Run&quot;,
-    &quot;Python.sam_test.executor&quot;: &quot;Run&quot;,
-    &quot;Python.slot_specification.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;dart.analysis.tool.window.visible&quot;: &quot;false&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/Admin/python/Parking_mng&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_MARK_IGNORED_FILES_AS_EXCLUDED": "true",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.all_centers.executor": "Run",
+    "Python.auto_convert.executor": "Run",
+    "Python.convert.executor": "Run",
+    "Python.cut.executor": "Run",
+    "Python.cut_frame.executor": "Run",
+    "Python.download_and_extract.executor": "Run",
+    "Python.main.executor": "Run",
+    "Python.parking_plot.executor": "Run",
+    "Python.sam_check.executor": "Run",
+    "Python.sam_test.executor": "Run",
+    "Python.slot_specification.executor": "Run",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "dart.analysis.tool.window.visible": "false",
+    "git-widget-placeholder": "main",
+    "last_opened_file_path": "C:/Users/Admin/python/Parking_mng"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\Admin\python\Parking_mng" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Admin\python\Parking_mng\backend" />
+      <recent name="C:\Users\Admin\python\Parking_mng\backend\app" />
+      <recent name="C:\Users\Admin\python\Parking_mng\AI" />
       <recent name="C:\Users\Admin\python\Parking_mng\datasets" />
       <recent name="C:\Users\Admin\python\Parking_mng\Data_test" />
-      <recent name="C:\Users\Admin\python\Parking_mng\datasets\cars\labels\train" />
-      <recent name="C:\Users\Admin\python\Parking_mng\datasets\cars\labels\val" />
-      <recent name="C:\Users\Admin\python\Parking_mng" />
     </key>
   </component>
   <component name="SharedIndexes">

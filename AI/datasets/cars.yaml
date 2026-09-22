@@ -1,0 +1,5 @@
+train: ./cars/images/train
+val: ./cars/images/val
+
+names:
+    0: car
