@@ -31,5 +31,3 @@ cap.release()
 video_writer.release()
 cv2.destroyAllWindows()  # destroy all opened windows
 
-
-
