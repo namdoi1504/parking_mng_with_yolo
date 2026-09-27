@@ -1,14 +1,14 @@
 from fastapi import APIRouter
-from ..schemas import AIparkingstatus
+from ..schemas import AIParkingStatusRequest
 
 router = APIRouter(
-    prefix = "/api/ai",
+    prefix="/api/ai",
     tags=["AI"]
 )
 
 
 @router.post("/parking_status")
-def receive_parking_status(data: AIparkingstatus):
+def receive_parking_status(data: AIParkingStatusRequest):
     print("Camera:", data.camera_id)
     for slot in data.parking_slots:
         print(
@@ -17,5 +17,5 @@ def receive_parking_status(data: AIparkingstatus):
             slot.confidence
         )
     return {
-        "message":"AI result received"
+        "message": "AI result received"
     }

@@ -1,8 +1,8 @@
 from datetime import datetime
 from sqlalchemy import (
-    Integer, String, Float, DateTime, ForeignKey, UniqueConstraint,)
+    Integer, String, Float, DateTime, ForeignKey)
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from .db import Base
@@ -20,11 +20,17 @@ class Role(Base):
     )
     description: Mapped[str | None] = mapped_column(
         String(255),
-        nullable = True
+        nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now()
+    )
+
+    # relationships
+    users: Mapped[list["User"]] = relationship("User", back_populates="role")
+    permissions: Mapped[list["Permission"]] = relationship(
+        "Permission", secondary="role_permissions", back_populates="roles"
     )
 
 
@@ -32,21 +38,30 @@ class Permission(Base):
     __tablename__ = 'permissions'
     id: Mapped[int] = mapped_column(
         Integer,
-        primary_key = True,
+        primary_key=True,
         autoincrement=True
     )
     code: Mapped[str] = mapped_column(
         String(100),
-        unique = True,
+        unique=True,
         nullable=False
     )
     name: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False
+    )
+    module: Mapped[str] = mapped_column(
         String(50),
         nullable=False
     )
-    description : Mapped[str | None] = mapped_column(
+    description: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True
+    )
+
+    # relationships
+    roles: Mapped[list["Role"]] = relationship(
+        "Role", secondary="role_permissions", back_populates="permissions"
     )
 class RolePermission(Base):
     __tablename__ = "role_permissions"
@@ -105,6 +120,9 @@ class User(Base):
         DateTime(timezone=True),
         server_default=func.now()
     )
+
+    # relationships
+    role: Mapped["Role"] = relationship("Role", back_populates="users")
 
 
 class Camera(Base):
