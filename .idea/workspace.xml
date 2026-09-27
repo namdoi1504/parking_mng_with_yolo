@@ -5,16 +5,17 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c28d90bd-1bf3-4137-996c-23addb512527" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/AI/datasets/utils.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/AI/datasets/cut.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/AI/datasets/cut_frame.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/AI/datasets/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/db.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/db.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="EmbeddingIndexingInfo">
+    <option name="cachedIndexableFilesCount" value="171" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -77,7 +78,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-3944b0c99280-6d6dccd035ac-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.30387.127" />
+        <option value="bundled-python-sdk-d4a74c56190c-6d6dccd035ac-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.33813.50" />
       </set>
     </attachedChunks>
   </component>

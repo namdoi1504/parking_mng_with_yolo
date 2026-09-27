@@ -1,8 +1,9 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessiomaker
+from sqlalchemy.orm import declarative_base
 from urllib.parse import quote_plus
+from sqlalchemy.orm import sessionmaker
 
-from config import settings
+from .config import settings
 
 password = quote_plus(settings.DATABASE_PASSWORD)
 
@@ -16,7 +17,7 @@ SQLALCHEMY_DATABASE_URL = (
 )
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessiomaker(
+SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine
