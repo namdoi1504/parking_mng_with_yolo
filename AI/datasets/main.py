@@ -12,7 +12,7 @@ video_writer = cv2.VideoWriter("parking car result.avi", cv2.VideoWriter_fourcc(
 # Initialize parking management object
 parkingmanager = solutions.ParkingManagement(
     model="cars_best.pt",  # path to model file
-    json_file="bounding_boxes.json",
+    json_file="sorted_bounding_boxes.json",
     imgsz=[1080, 1920],# path to parking annotations file
 )
 

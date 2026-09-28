@@ -16,3 +16,6 @@ datasets/auto_convert.py
 datasets/parking_car.mp4
 datasets/parking car result1.avi
 datasets/parking car result.avi
+datasets/sorted_preview.png
+datasets/sorted_bounding_boxes.json
+datasets/slots_config.json
