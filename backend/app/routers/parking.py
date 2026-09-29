@@ -1,37 +1,47 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
-from app.db import get_db
-from app import models
-from app.schemas import (
+from ..db import get_db
+from .. import models
+from ..schemas import (
     AIParkingStatusRequest,
     AIUpdateResult,
     ParkingMapResponse,
     ParkingSlotResponse,
     ParkingSummary,
+    CameraSourceType,
+    ROICoordinate,
 )
-from app.websocket_manager import manager
+from ..websocket_manager import manager
+from .common import commit, get_or_404, lock_camera_creation, advance_camera_sequence
 
 router = APIRouter(prefix="/api/ai", tags=["AI Engine"])
 
 
 # Schema nội bộ cho sync (không cần thêm vào schemas.py)
 class SlotSyncItem(BaseModel):
-    slot_code: str
-    roi_coordinates: list[dict]   # [{"x": float, "y": float}, ...]
-    col: int = 0
-    row: int = 0
+    slot_code: str = Field(min_length=1, max_length=50)
+    roi_coordinates: list[ROICoordinate]   # [{"x": float, "y": float}, ...]
+    col: int = Field(default=0, ge=0)
+    row: int = Field(default=0, ge=0)
 
 
 class SlotSyncRequest(BaseModel):
-    camera_id: int
+    camera_id: int = Field(gt=0, le=2147483647)
     # Thông tin camera — tự tạo nếu chưa có trong DB
-    camera_name: str = "Camera 1"
-    camera_source_url: str = "file://parking_car.mp4"
-    camera_source_type: str = "VIDEO_FILE"
+    camera_name: str = Field(default="Camera 1", min_length=1, max_length=100)
+    camera_source_url: str = Field(default="file://parking_car.mp4", min_length=1, max_length=255)
+    camera_source_type: CameraSourceType = CameraSourceType.VIDEO_FILE
     slots: list[SlotSyncItem]
+
+    @model_validator(mode="after")
+    def unique_codes(self):
+        codes = [slot.slot_code for slot in self.slots]
+        if len(codes) != len(set(codes)):
+            raise ValueError("Duplicate slot codes")
+        return self
 
 
 class SlotSyncResult(BaseModel):
@@ -55,23 +65,27 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
     Tự động thích nghi với số lượng slot bất kỳ.
     """
     created = updated = unchanged = 0
+    lock_camera_creation(db)
 
     # ① Đảm bảo camera tồn tại trước (tránh FK violation)
     camera = db.query(models.Camera).filter(models.Camera.id == data.camera_id).first()
     if camera is None:
         camera = models.Camera(
+            id          = data.camera_id,
             name        = data.camera_name,
-            source_type = data.camera_source_type,
+            source_type = data.camera_source_type.value,
             source_url  = data.camera_source_url,
             status      = "CONNECTED",
         )
         db.add(camera)
         db.flush()
+        advance_camera_sequence(db)
         actual_camera_id = camera.id
     else:
         actual_camera_id = camera.id
 
     # ② Lấy TẤT CẢ slot hiện có của camera này bằng 1 query
+    db.query(models.Camera).filter_by(id=actual_camera_id).with_for_update().one()
     existing_slots = (
         db.query(models.ParkingSlot)
         .filter(models.ParkingSlot.camera_id == actual_camera_id)
@@ -82,20 +96,31 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
     }
 
     # ③ Phân loại: cần tạo mới vs cập nhật
+    conflicts = db.query(models.ParkingSlot.id).filter(
+        models.ParkingSlot.slot_code.in_([slot.slot_code for slot in data.slots]),
+        models.ParkingSlot.camera_id != actual_camera_id,
+    ).first()
+    if conflicts:
+        raise HTTPException(409, "Slot code belongs to another camera")
     new_slots = []
     for item in data.slots:
+        roi = [point.model_dump() for point in item.roi_coordinates]
         existing = existing_by_code.get(item.slot_code)
         if existing is None:
             new_slots.append(models.ParkingSlot(
                 camera_id       = actual_camera_id,
                 slot_code       = item.slot_code,
-                roi_coordinates = item.roi_coordinates,
+                roi_coordinates = roi,
+                col = item.col,
+                row = item.row,
                 status          = "EMPTY",
             ))
             created += 1
         else:
-            if existing.roi_coordinates != item.roi_coordinates:
-                existing.roi_coordinates = item.roi_coordinates
+            if (existing.roi_coordinates, existing.col, existing.row) != (roi, item.col, item.row):
+                existing.roi_coordinates = roi
+                existing.col = item.col
+                existing.row = item.row
                 updated += 1
             else:
                 unchanged += 1
@@ -104,7 +129,7 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
     if new_slots:
         db.add_all(new_slots)
 
-    db.commit()
+    commit(db)
 
     return SlotSyncResult(
         camera_id = actual_camera_id,
@@ -129,6 +154,7 @@ async def receive_parking_status(
     Endpoint dành riêng cho AI engine (YOLO).
     Nhận danh sách trạng thái slot → cập nhật DB → broadcast WebSocket đến FE.
     """
+    get_or_404(db, models.Camera, data.camera_id, lock=True)
     changed       = 0
     unchanged     = 0
     unknown_slots = []
@@ -137,7 +163,10 @@ async def receive_parking_status(
     incoming_codes = [s.slot_code for s in data.parking_slots]
     slot_rows = (
         db.query(models.ParkingSlot)
-        .filter(models.ParkingSlot.slot_code.in_(incoming_codes))
+        .filter(models.ParkingSlot.slot_code.in_(incoming_codes),
+                models.ParkingSlot.camera_id == data.camera_id)
+        .order_by(models.ParkingSlot.id)
+        .with_for_update()
         .all()
     )
     slot_by_code: dict[str, models.ParkingSlot] = {s.slot_code: s for s in slot_rows}
@@ -145,6 +174,7 @@ async def receive_parking_status(
     new_events: list[models.ParkingEvent] = []
     ws_messages: list[dict] = []
 
+    event_time = datetime.now(timezone.utc)
     for slot_data in data.parking_slots:
         slot = slot_by_code.get(slot_data.slot_code)
 
@@ -159,6 +189,7 @@ async def receive_parking_status(
 
             new_events.append(models.ParkingEvent(
                 parking_slot_id = slot.id,
+                event_time      = event_time,
                 old_status      = old_status,
                 new_status      = slot_data.status.value,
                 confidence      = slot_data.confidence if slot_data.confidence is not None else 1.0,
@@ -171,7 +202,7 @@ async def receive_parking_status(
                 "old_status"      : old_status,
                 "new_status"      : slot_data.status.value,
                 "confidence"      : slot_data.confidence,
-                "event_time"      : datetime.now(timezone.utc).isoformat(),
+                "event_time"      : event_time.isoformat(),
             })
             changed += 1
         else:
@@ -181,7 +212,7 @@ async def receive_parking_status(
     if new_events:
         db.add_all(new_events)
 
-    db.commit()
+    commit(db)
 
     # ── Broadcast WebSocket sau commit ──
     for msg in ws_messages:
@@ -220,6 +251,7 @@ def get_parking_summary(db: Session = Depends(get_db)):
         occupied_slots = occupied,
         reserved_slots = reserved,
         unknown_slots  = unknown,
+        has_unknown_alert = unknown > 0,
     )
 
 
@@ -247,6 +279,16 @@ def get_parking_map(db: Session = Depends(get_db)):
             occupied_slots = occupied,
             reserved_slots = reserved,
             unknown_slots  = unknown,
+            has_unknown_alert = unknown > 0,
         ),
         slots=[ParkingSlotResponse.model_validate(s) for s in slots],
     )
+
+
+@router.get("/unknown-slots", response_model=list[ParkingSlotResponse])
+def get_unknown_slots(camera_id: int | None = None, db: Session = Depends(get_db)):
+    query = db.query(models.ParkingSlot).filter_by(status="UNKNOWN")
+    if camera_id is not None:
+        get_or_404(db, models.Camera, camera_id)
+        query = query.filter_by(camera_id=camera_id)
+    return query.order_by(models.ParkingSlot.id).all()

@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import (
-    Integer, String, Float, DateTime, ForeignKey)
+    Integer, String, Float, DateTime, ForeignKey, Boolean, JSON, UniqueConstraint, false)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -121,6 +121,8 @@ class User(Base):
         server_default=func.now()
     )
 
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
     # relationships
     role: Mapped["Role"] = relationship("Role", back_populates="users")
 
@@ -190,8 +192,12 @@ class ParkingSlot(Base):
         nullable=False
     )
 
+    col: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    row: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
     roi_coordinates: Mapped[dict | list] = mapped_column(
-        JSONB,
+        JSON().with_variant(JSONB(), "postgresql"),
         nullable=False
     )
 
@@ -249,6 +255,10 @@ class ParkingEvent(Base):
 
 class ParkingStatistic(Base):
     __tablename__ = "parking_statistics"
+    __table_args__ = (UniqueConstraint("camera_id", "period_start", "period_end", name="uq_stat_camera_period"),)
+    # NULL is reserved for historical global statistics from before this migration.
+    camera_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("cameras.id"), nullable=True, index=True)
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -283,3 +293,12 @@ class ParkingStatistic(Base):
         nullable=False,
         server_default="0.0"
     )
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

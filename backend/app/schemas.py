@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ORMBaseModel(BaseModel):
@@ -49,6 +49,7 @@ class TokenPayload(BaseModel):
 
 
 class TokenResponse(BaseModel):
+    refresh_token: str
     access_token: str
     token_type: str = "bearer"
 
@@ -128,7 +129,16 @@ class UserBase(BaseModel):
     status: UserStatus = UserStatus.ACTIVE
 
 
-class UserCreate(BaseModel):
+class PasswordInput(BaseModel):
+    @field_validator("password", check_fields=False)
+    @classmethod
+    def validate_password_bytes(cls, value):
+        if value is not None and len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must not exceed 72 UTF-8 bytes")
+        return value
+
+
+class UserCreate(PasswordInput):
     role_id: int
     username: str = Field(min_length=1, max_length=50)
     password: str = Field(min_length=6, max_length=255)
@@ -136,7 +146,7 @@ class UserCreate(BaseModel):
     status: UserStatus = UserStatus.ACTIVE
 
 
-class UserUpdate(BaseModel):
+class UserUpdate(PasswordInput):
     role_id: int | None = None
     username: str | None = Field(default=None, min_length=1, max_length=50)
     password: str | None = Field(default=None, min_length=6, max_length=255)
@@ -154,7 +164,7 @@ class UserResponse(ORMBaseModel):
 
 
 class UserDetailResponse(UserResponse):
-    role: RoleResponse | None = None
+    role: RoleWithPermissionsResponse | None = None
 
 
 # cam
@@ -213,6 +223,8 @@ class ParkingSlotUpdate(BaseModel):
 
 
 class ParkingSlotResponse(ORMBaseModel):
+    col: int
+    row: int
     id: int
     camera_id: int
     slot_code: str
@@ -283,8 +295,15 @@ class ParkingSlotDetection(BaseModel):
 
 
 class AIParkingStatusRequest(BaseModel):
-    camera_id: int
+    camera_id: int = Field(gt=0)
     parking_slots: list[ParkingSlotDetection]
+
+    @model_validator(mode="after")
+    def unique_codes(self):
+        codes = [slot.slot_code for slot in self.parking_slots]
+        if len(codes) != len(set(codes)):
+            raise ValueError("Duplicate slot codes")
+        return self
 
 
 class AIUpdateResult(BaseModel):
@@ -298,6 +317,7 @@ class AIUpdateResult(BaseModel):
 # Dashboard / map
 
 class ParkingSummary(BaseModel):
+    has_unknown_alert: bool = False
     total_slots: int = Field(ge=0)
     empty_slots: int = Field(ge=0)
     occupied_slots: int = Field(ge=0)
@@ -355,3 +375,19 @@ class ParkingEventListResponse(BaseModel):
 class ParkingStatisticListResponse(BaseModel):
     data: list[ParkingStatisticResponse]
     meta: PaginationMeta
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=1, max_length=512)
+
+
+class UserStatusUpdate(BaseModel):
+    status: UserStatus
+
+
+class CameraStatusUpdate(BaseModel):
+    status: CameraStatus
+
+
+class AssignPermissionRequest(BaseModel):
+    permission_id: int = Field(gt=0)

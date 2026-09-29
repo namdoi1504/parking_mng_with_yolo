@@ -9,14 +9,14 @@ password = quote_plus(settings.DATABASE_PASSWORD)
 
 SQLALCHEMY_DATABASE_URL = (
     f"postgresql://"
-    f"{settings.DATABASE_USERNAME}:"
+    f"{quote_plus(settings.DATABASE_USERNAME)}:"
     f"{password}@"
     f"{settings.DATABASE_HOSTNAME}:"
     f"{settings.DATABASE_PORT}/"
     f"{settings.DATABASE_NAME}"
 )
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_engine(SQLALCHEMY_DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,

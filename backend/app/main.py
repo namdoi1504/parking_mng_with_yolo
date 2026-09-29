@@ -1,38 +1,70 @@
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from .routers import ai, parking, users
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from .config import settings
+from .db import SessionLocal
+from .oauth2 import authenticate_token
+from .routers import auth, parking, users, roles, permissions, cameras, stats
+from .statistics import aggregate_stats
 from .websocket_manager import manager
 
-app = FastAPI(
-    title="Parking Management API",
-    description="API cho hệ thống quản lý bãi đỗ xe với AI YOLO",
-    version="1.0.0",
-)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler = None
+    if settings.STATS_SCHEDULER_ENABLED:
+        scheduler = AsyncIOScheduler(timezone="UTC")
+        scheduler.add_job(aggregate_stats, "cron", minute="*/15", id="parking-stats",
+                          max_instances=1, coalesce=True, misfire_grace_time=60)
+        scheduler.start()
+    app.state.scheduler = scheduler
+    try:
+        yield
+    finally:
+        if scheduler:
+            scheduler.shutdown(wait=False)
 
 
-app.include_router(users.router)
-app.include_router(parking.router)
-# app.include_router(ai.router)   # enable khi cần
+app = FastAPI(title="Parking Management API", version="1.1.0", lifespan=lifespan)
+for route in (auth, users, roles, permissions, cameras, parking, stats):
+    app.include_router(route.router)
 
 
 @app.websocket("/ws/parking")
 async def websocket_parking(websocket: WebSocket):
-    """WebSocket endpoint — FE kết nối vào đây để nhận update real-time."""
-    await manager.connect(websocket)
+    # Non-browser clients can send a Bearer header; browsers can use subprotocols
+    # ["parking", "bearer.<access_token>"] without putting credentials in the URL.
+    header = websocket.headers.get("authorization", "")
+    protocols = websocket.scope.get("subprotocols", [])
+    token = header[7:] if header.lower().startswith("bearer ") else next(
+        (p[7:] for p in protocols if p.startswith("bearer.")), "")
+
+    def authorized():
+        try:
+            with SessionLocal() as db:
+                user = authenticate_token(token, db)
+                return "parking:view" in {p.code for p in user.role.permissions}
+        except HTTPException:
+            return False
+
+    if not authorized():
+        await websocket.close(code=1008)
+        return
+    await manager.connect(websocket, subprotocol="parking" if "parking" in protocols else None,
+                          authorize=authorized)
     try:
         while True:
-            await websocket.receive_text()  # keep-alive, chờ ping từ client
+            await websocket.receive_text()
+            if not authorized():
+                await websocket.close(code=1008)
+                break
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(websocket)
 
 
 @app.get("/")
 def root():
-    return {
-        "message": "Parking Management API",
-        "ws_endpoint": "/ws/parking",
-        "docs": "/docs",
-        "active_ws_connections": manager.connection_count,
-    }
-
-
+    return {"message": "Parking Management API", "ws_endpoint": "/ws/parking", "docs": "/docs",
+            "active_ws_connections": manager.connection_count}
