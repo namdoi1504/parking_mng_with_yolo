@@ -1,5 +1,47 @@
 import cv2
 import os
+import numpy as np
+
+# draw slot
+def draw_slot_overlay(
+    frame: np.ndarray,
+    parkingmanager,
+    slot_map: dict,
+    slot_statuses: list[dict],
+) -> np.ndarray:
+    regions = getattr(parkingmanager, "json", [])
+    status_by_code = {s["slot_code"]: s["status"] for s in slot_statuses}
+
+    for idx, region in enumerate(regions):
+        slot_code = slot_map.get(idx)
+        if slot_code is None:
+            continue
+
+        pts = np.array(region["points"], dtype=np.int32).reshape(-1, 1, 2)
+        status = status_by_code.get(slot_code, "EMPTY")
+        color = (0, 200, 0) if status == "OCCUPIED" else (0, 0, 200)
+
+        overlay = frame.copy()
+        cv2.fillPoly(overlay, [pts], color)
+        cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+        cv2.polylines(frame, [pts], True, color, 1)
+
+        cx = int(pts[:, 0, 0].mean())
+        cy = int(pts[:, 0, 1].mean())
+        label = slot_code.zfill(3) if slot_code.isdigit() else slot_code
+        cv2.putText(
+            frame, label,
+            (cx - 12, cy + 4),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.3,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+
+    return frame
+
+
 # cut frame
 def cut_3s_frame(output_dir, video_path):
     os.makedirs(output_dir, exist_ok=True)

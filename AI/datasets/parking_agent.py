@@ -1,19 +1,3 @@
-"""
-AI Parking Agent
-
-Read camera/video → Detect vehicles using YOLO → Send slot status to the Backend every second.
-
-How to run:
-```bash
-cd AI/datasets
-python parking_agent.py
-```
-
-Requirements:
-```bash
-pip install ultralytics httpx opencv-python
-```
-"""
 import json
 import time
 import threading
@@ -22,6 +6,7 @@ import cv2
 import numpy as np
 from pathlib import Path
 from ultralytics import solutions
+from utils import draw_slot_overlay
 
 # Folder containing this script
 HERE = Path(__file__).parent
@@ -32,10 +17,10 @@ CAMERA_ID        = 1
 CONFIG_JSON      = HERE / "slots_config.json"
 SORTED_JSON      = str(HERE / "sorted_bounding_boxes.json")
 MODEL_PATH       = str(HERE / "cars_best.pt")
-VIDEO_SOURCE     = str(HERE / "parking_car.mp4")   # or RTSP: "rtsp://..."
-SEND_INTERVAL    = 3.0                             # seconds between sends (increase to avoid overload)
-SHOW_WINDOW      = True                            # True to watch live
-IMGSZ            = [1088, 1920]                    # multiple of 32 (1080 → 1088)
+VIDEO_SOURCE     = str(HERE / "parking_car.mp4")
+SEND_INTERVAL    = 3.0
+SHOW_WINDOW      = True
+IMGSZ            = [1088, 1920]                    # multiple of 32
 
 
 
@@ -234,18 +219,40 @@ def main():
 
         # Run detection
         results = parkingmanager(frame)
-        display_frame = results.plot_im if hasattr(results, "plot_im") else frame
+
+        display_frame = (
+            results.plot_im.copy()
+            if hasattr(results, "plot_im")
+            else frame.copy()
+        )
+        slot_statuses = detect_slot_status(
+            parkingmanager,
+            frame,
+            slot_map
+        )
+        display_frame = draw_slot_overlay(
+            display_frame,
+            parkingmanager,
+            slot_map,
+            slot_statuses
+        )
 
         # Send to backend by interval
         now = time.time()
-        if now - last_sent >= SEND_INTERVAL:
-            slot_statuses = detect_slot_status(parkingmanager, frame, slot_map)
-            if slot_statuses:
-                print(f"\n[Frame {frame_idx}] Sending {len(slot_statuses)} slots...")
-                send_async(slot_statuses, CAMERA_ID)
-            last_sent = now
 
-        # Display
+        if now - last_sent >= SEND_INTERVAL:
+            if slot_statuses:
+                print(
+                    f"\n[Frame {frame_idx}] "
+                    f"Sending {len(slot_statuses)} slots..."
+                )
+
+                send_async(
+                    slot_statuses,
+                    CAMERA_ID
+                )
+
+            last_sent = now
         if SHOW_WINDOW:
             h, w = display_frame.shape[:2]
             if w > 1280:
@@ -257,7 +264,7 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
-    print("\n🛑 Agent stopped.")
+    print("\nAgent stopped.")
 
 
 if __name__ == "__main__":
