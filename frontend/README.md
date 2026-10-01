@@ -40,6 +40,8 @@ Khi `VITE_API_BASE_URL` trỏ đến ngrok, FE tự thêm header `ngrok-skip-bro
 
 FE đọc MJPEG bằng `fetch` có Bearer token và header ngrok, sau đó hiển thị JPEG bằng URL blob. Kết nối được mở lại sau mỗi 60 giây để Backend kiểm tra quyền; FE nối lại khi lỗi và ngắt nếu không nhận khung hình trong 10 giây. Đóng trang sẽ hủy request và giải phóng URL blob. Không đưa token vào URL video. Gateway không thay đổi xử lý YOLO hoặc chu kỳ cập nhật trạng thái ô đỗ.
 
+Ảnh video cập nhật qua `ref` thay vì React state mỗi khung; component video dùng `memo` để không render lại theo polling của trang.
+
 ## Màn hình và giới hạn
 
 - `/monitor`: video AI, tốc độ video/AI riêng, thay đổi quan sát giữa các lần polling và bản đồ theo camera.

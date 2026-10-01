@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { CameraStream } from "./CameraStream";
 import { apiFetch, apiResponse } from "./api";
 import { receiveMjpeg } from "./mjpeg";
+import { Profiler } from "react";
+import { act } from "@testing-library/react";
 
 vi.mock("./api", () => ({ apiFetch: vi.fn(), apiResponse: vi.fn() }));
 vi.mock("./mjpeg", () => ({ receiveMjpeg: vi.fn() }));
@@ -78,5 +80,20 @@ describe("processed camera video", () => {
     unmount();
     expect(signal?.aborted).toBe(true);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:test-frame");
+  });
+  it("updates successive JPEGs without committing the React panel each frame", async () => {
+    let deliver: ((frame: Uint8Array) => void) | undefined;
+    vi.mocked(receiveMjpeg).mockImplementation(async (response, onFrame) => {
+      deliver = onFrame; onFrame(new Uint8Array([255, 216, 255, 217]));
+      const signal = (response as unknown as { signal: AbortSignal }).signal;
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    });
+    const committed = vi.fn(); mockStatus();
+    render(<Profiler id="video" onRender={committed}><CameraStream cameraId={1} /></Profiler>);
+    await screen.findByRole("img");
+    const initialCommits = committed.mock.calls.length;
+    for (let i = 0; i < 20; i++) await act(async () => deliver?.(new Uint8Array([255, 216, 255, 217])));
+    expect(committed).toHaveBeenCalledTimes(initialCommits);
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(21);
   });
 });
