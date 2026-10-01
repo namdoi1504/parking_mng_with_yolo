@@ -42,7 +42,16 @@ export function getClaims(): AuthClaims | null {
   } catch { return null; }
 }
 
+let refreshInFlight: Promise<boolean> | null = null;
+
 async function refreshAccessToken() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = rotateAccessToken();
+  try { return await refreshInFlight; }
+  finally { refreshInFlight = null; }
+}
+
+async function rotateAccessToken() {
   const refreshToken = tokenStorage().getItem(REFRESH_KEY);
   if (!refreshToken) return false;
   const response = await fetch(`${API_BASE}/auth/refresh`, {
@@ -54,18 +63,23 @@ async function refreshAccessToken() {
   return true;
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+export async function apiResponse(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
   const headers = apiHeaders(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const token = getAccessToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: init.signal ?? AbortSignal.timeout(15000) });
-  if (response.status === 401 && !path.startsWith("/auth/") && retry && await refreshAccessToken()) return apiFetch<T>(path, init, false);
+  if (response.status === 401 && !path.startsWith("/auth/") && retry && await refreshAccessToken()) return apiResponse(path, init, false);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const detail = body?.detail;
     throw new Error(typeof detail === "string" ? detail : Array.isArray(detail) ? detail.map((item: { loc?: string[]; msg?: string }) => `${item.loc?.slice(1).join(".") ?? "Dữ liệu"}: ${item.msg ?? "Không hợp lệ"}`).join("; ") : `Yêu cầu thất bại (${response.status})`);
   }
+  return response;
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await apiResponse(path, init);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }

@@ -26,9 +26,19 @@ Có thể đặt các biến sau trong `frontend/.env` cục bộ hoặc môi tr
 | `VITE_API_BASE_URL` | URL gốc của backend; mặc định rỗng để dùng proxy cùng origin |
 | `VITE_WS_URL` | Có trong helper cấu hình nhưng không được dùng bởi luồng polling hiện tại |
 
-Các biến `VITE_*` được đưa vào frontend, vì vậy không chứa mật khẩu hoặc secret. Video dùng đường dẫn cùng origin `/ai-stream`; khi triển khai cần cấu hình proxy riêng. Hướng dẫn chạy backend và agent: [README gốc](../README.md) và [AI/STREAMING.md](../AI/STREAMING.md).
+Các biến `VITE_*` được đưa vào frontend, vì vậy không chứa mật khẩu hoặc secret. Video và trạng thái luồng dùng chung `VITE_API_BASE_URL` qua gateway `/ai-stream` của Backend; không cần tunnel riêng cho cổng 8001. Hướng dẫn chạy backend và agent: [README gốc](../README.md) và [AI/STREAMING.md](../AI/STREAMING.md).
 
 Khi `VITE_API_BASE_URL` trỏ đến ngrok, FE tự thêm header `ngrok-skip-browser-warning` cho các request API và làm mới token để bỏ qua trang cảnh báo của tunnel. Backend cần cho phép header này trong CORS và cho phép origin của FE. Sau khi cập nhật mã hoặc URL API, deploy lại FE trên Vercel.
+
+## Video trên Vercel qua ngrok
+
+1. Chạy Backend cổng 8000 và `python -u AI/datasets/parking_agent.py --stream --no-window` từ thư mục gốc dự án.
+2. Chạy `ngrok http 8000`; giữ dịch vụ AI cổng 8001 trên loopback.
+3. Đặt `VITE_API_BASE_URL` trên Vercel thành URL HTTPS của tunnel, không kèm đường dẫn.
+4. Thêm origin Vercel vào `CORS_ORIGINS` của `backend/.env`, khởi động lại Backend và deploy lại FE.
+5. Đăng nhập tài khoản có quyền `parking:view`, mở `/monitor`.
+
+FE đọc MJPEG bằng `fetch` có Bearer token và header ngrok, sau đó hiển thị JPEG bằng URL blob. Kết nối được mở lại sau mỗi 60 giây để Backend kiểm tra quyền; FE nối lại khi lỗi và ngắt nếu không nhận khung hình trong 10 giây. Đóng trang sẽ hủy request và giải phóng URL blob. Không đưa token vào URL video. Gateway không thay đổi xử lý YOLO hoặc chu kỳ cập nhật trạng thái ô đỗ.
 
 ## Màn hình và giới hạn
 

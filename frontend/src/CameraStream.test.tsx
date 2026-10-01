@@ -1,15 +1,29 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CameraStream } from "./CameraStream";
+import { apiFetch, apiResponse } from "./api";
+import { receiveMjpeg } from "./mjpeg";
+
+vi.mock("./api", () => ({ apiFetch: vi.fn(), apiResponse: vi.fn() }));
+vi.mock("./mjpeg", () => ({ receiveMjpeg: vi.fn() }));
 
 const status = { camera_id: 1, source_name: "parking_car.mp4", ready: true, running: true,
   frame_id: 5, frame_age_seconds: 0.1, updated_at: Date.now() / 1000,
   fps: 3.6, media_seconds: 12, occupied: 282, empty: 188, sync_ok: true, sync_at: Date.now() / 1000 };
 function mockStatus(overrides = {}) {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...status, ...overrides }) }));
+  vi.mocked(apiFetch).mockResolvedValue({ ...status, ...overrides });
 }
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+beforeEach(() => {
+  vi.stubGlobal("URL", { createObjectURL: vi.fn(() => "blob:test-frame"), revokeObjectURL: vi.fn() });
+  vi.mocked(apiResponse).mockImplementation(async (_path, init) => ({ signal: init?.signal }) as unknown as Response);
+  vi.mocked(receiveMjpeg).mockImplementation(async (response, onFrame) => {
+    onFrame(new Uint8Array([255, 216, 255, 217]));
+    const signal = (response as unknown as { signal: AbortSignal }).signal;
+    await new Promise<void>((resolve) => { if (signal.aborted) resolve(); else signal.addEventListener("abort", () => resolve(), { once: true }); });
+  });
+});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 describe("processed camera video", () => {
   it("distinguishes video throughput from AI throughput", async () => {
     mockStatus({ video_fps: 29.8, fps: 22, analysis_age_ms: 85, analysis_stale: false });
@@ -25,7 +39,8 @@ describe("processed camera video", () => {
   it("shows the actual stream and its frame counts", async () => {
     mockStatus(); render(<CameraStream cameraId={1} />);
     const image = await screen.findByRole("img");
-    expect(image.getAttribute("src")).toBe("/ai-stream/video?attempt=0");
+    expect(image.getAttribute("src")).toBe("blob:test-frame");
+    expect(vi.mocked(apiResponse).mock.calls[0][0]).toBe("/ai-stream/video");
     expect(screen.getByRole("status").textContent).toBe("Đang nhận hình AI");
     expect(screen.getByText("282")).toBeTruthy();
   });
@@ -46,9 +61,22 @@ describe("processed camera video", () => {
     expect(screen.getByRole("status").textContent).toBe("Luồng hình mất kết nối");
   });
   it("reports an unavailable AI service", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Offline")));
+    vi.mocked(apiFetch).mockRejectedValue(new Error("Offline"));
     render(<CameraStream cameraId={1} />);
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Luồng hình mất kết nối"));
     expect(screen.queryByRole("img")).toBeNull();
+  });
+  it("does not open video for a different camera", async () => {
+    mockStatus(); render(<CameraStream cameraId={2} />);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Camera này chưa có luồng hình"));
+    expect(apiResponse).not.toHaveBeenCalled();
+  });
+  it("aborts the stream and releases its frame when unmounted", async () => {
+    mockStatus(); const { unmount } = render(<CameraStream cameraId={1} />);
+    await screen.findByRole("img");
+    const signal = vi.mocked(apiResponse).mock.calls[0][1]?.signal;
+    unmount();
+    expect(signal?.aborted).toBe(true);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:test-frame");
   });
 });

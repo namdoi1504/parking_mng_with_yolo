@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/ai-stream": { target: "http://127.0.0.1:8001", rewrite: (path) => path.replace(/^\/ai-stream/, "") },
+      "/ai-stream": "http://127.0.0.1:8000",
       "/auth": "http://127.0.0.1:8000",
       "/users": "http://127.0.0.1:8000",
       "/roles": "http://127.0.0.1:8000",
