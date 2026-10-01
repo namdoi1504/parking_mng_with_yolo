@@ -18,7 +18,15 @@ pnpm dev
 
 Chế độ này chỉ dùng dữ liệu mẫu để duyệt giao diện. Để tích hợp thật, bỏ biến trên và chạy backend trước frontend.
 
-Các biến cấu hình khác được mô tả trong `.env.example`.
+Có thể đặt các biến sau trong `frontend/.env` cục bộ hoặc môi trường terminal, rồi khởi động lại Vite:
+
+| Biến | Ý nghĩa |
+| --- | --- |
+| `VITE_DEMO_MODE` | Đặt `true` để xem dữ liệu mẫu |
+| `VITE_API_BASE_URL` | URL gốc của backend; mặc định rỗng để dùng proxy cùng origin |
+| `VITE_WS_URL` | Có trong helper cấu hình nhưng không được dùng bởi luồng polling hiện tại |
+
+Các biến `VITE_*` được đưa vào frontend, vì vậy không chứa mật khẩu hoặc secret. Video dùng đường dẫn cùng origin `/ai-stream`; khi triển khai cần cấu hình proxy riêng. Hướng dẫn chạy backend và agent: [README gốc](../README.md) và [AI/STREAMING.md](../AI/STREAMING.md).
 
 ## Màn hình và giới hạn
 
