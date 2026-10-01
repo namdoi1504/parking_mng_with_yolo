@@ -28,6 +28,8 @@ Có thể đặt các biến sau trong `frontend/.env` cục bộ hoặc môi tr
 
 Các biến `VITE_*` được đưa vào frontend, vì vậy không chứa mật khẩu hoặc secret. Video dùng đường dẫn cùng origin `/ai-stream`; khi triển khai cần cấu hình proxy riêng. Hướng dẫn chạy backend và agent: [README gốc](../README.md) và [AI/STREAMING.md](../AI/STREAMING.md).
 
+Khi `VITE_API_BASE_URL` trỏ đến ngrok, FE tự thêm header `ngrok-skip-browser-warning` cho các request API và làm mới token để bỏ qua trang cảnh báo của tunnel. Backend cần cho phép header này trong CORS và cho phép origin của FE. Sau khi cập nhật mã hoặc URL API, deploy lại FE trên Vercel.
+
 ## Màn hình và giới hạn
 
 - `/monitor`: video AI, tốc độ video/AI riêng, thay đổi quan sát giữa các lần polling và bản đồ theo camera.

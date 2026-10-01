@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db import SessionLocal
 from .oauth2 import authenticate_token
@@ -26,6 +27,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Parking Management API", version="1.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "ngrok-skip-browser-warning"],
+)
 for route in (auth, users, roles, permissions, cameras, parking, stats):
     app.include_router(route.router)
 

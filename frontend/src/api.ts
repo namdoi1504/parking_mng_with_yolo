@@ -1,9 +1,17 @@
 import type { AuthClaims } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+const IS_NGROK_API = /^https?:\/\/[^/]+\.(?:ngrok-free\.dev|ngrok-free\.app|ngrok\.io|ngrok\.app)(?=[:/]|$)/i.test(API_BASE);
 const ACCESS_KEY = "parking_access_token";
 const REFRESH_KEY = "parking_refresh_token";
 const STORAGE_KEY = "parking_token_storage";
+
+function apiHeaders(initial?: HeadersInit) {
+  const headers = new Headers(initial);
+  // ngrok's browser warning response does not include the backend CORS headers.
+  if (IS_NGROK_API) headers.set("ngrok-skip-browser-warning", "1");
+  return headers;
+}
 
 function tokenStorage() {
   return localStorage.getItem(STORAGE_KEY) === "local" ? localStorage : sessionStorage;
@@ -38,7 +46,7 @@ async function refreshAccessToken() {
   const refreshToken = tokenStorage().getItem(REFRESH_KEY);
   if (!refreshToken) return false;
   const response = await fetch(`${API_BASE}/auth/refresh`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ refresh_token: refreshToken })
+    method: "POST", headers: apiHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ refresh_token: refreshToken })
   });
   if (!response.ok) { clearTokens(); return false; }
   const data = await response.json();
@@ -47,7 +55,7 @@ async function refreshAccessToken() {
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  const headers = new Headers(init.headers);
+  const headers = apiHeaders(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const token = getAccessToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
