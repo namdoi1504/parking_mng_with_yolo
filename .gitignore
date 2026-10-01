@@ -18,3 +18,15 @@ datasets/parking_car.mp4
 datasets/parking car result.avi
 parking_ai_bugs_and_flow.md
 PROJECT_ARCHITECTURE.md
+# Local secrets, videos, and generated caches
+.env
+.env.*
+!.env.example
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+__pycache__/
+*.py[cod]
+.codex/

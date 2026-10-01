@@ -12,18 +12,22 @@ def draw_slot_overlay(
     regions = getattr(parkingmanager, "json", [])
     status_by_code = {s["slot_code"]: s["status"] for s in slot_statuses}
 
+    overlay = frame.copy()
+    outlines = []
+    colors = {"EMPTY": (129, 185, 14), "OCCUPIED": (232, 103, 40),
+              "RESERVED": (17, 159, 245), "UNKNOWN": (72, 69, 239)}
     for idx, region in enumerate(regions):
         slot_code = slot_map.get(idx)
         if slot_code is None:
             continue
 
         pts = np.array(region["points"], dtype=np.int32).reshape(-1, 1, 2)
-        status = status_by_code.get(slot_code, "EMPTY")
-        color = (0, 200, 0) if status == "OCCUPIED" else (0, 0, 200)
-
-        overlay = frame.copy()
+        status = status_by_code.get(slot_code, "UNKNOWN")
+        color = colors[status]
         cv2.fillPoly(overlay, [pts], color)
-        cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+        outlines.append((pts, color, slot_code))
+    cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+    for pts, color, slot_code in outlines:
         cv2.polylines(frame, [pts], True, color, 1)
 
         cx = int(pts[:, 0, 0].mean())
