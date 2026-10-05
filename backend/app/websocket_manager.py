@@ -1,5 +1,6 @@
 from fastapi import WebSocket
 import json
+from starlette.concurrency import run_in_threadpool
 
 
 class ConnectionManager:
@@ -22,7 +23,7 @@ class ConnectionManager:
         for conn in list(self.active_connections):
             try:
                 authorize = self.authorizers.get(conn)
-                if authorize is not None and not authorize():
+                if authorize is not None and not await run_in_threadpool(authorize):
                     await conn.close(code=1008)
                     self.disconnect(conn)
                     continue

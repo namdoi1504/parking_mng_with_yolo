@@ -52,10 +52,16 @@ class LatestVideo:
 
     def _decode(self) -> None:
         started = time.perf_counter()
-        sequence, epoch = 0, -1
+        sequence, epoch, last_tick = 0, -1, -1
         try:
             while not self.stopping.is_set():
                 tick = int((time.perf_counter() - started) * self.fps)
+                # Event.wait may wake just before the next frame deadline. Re-reading
+                # the same tick would seek backward into a compressed video GOP.
+                if tick <= last_tick:
+                    self.stopping.wait(max(.001, started + (last_tick + 1) / self.fps
+                                           - time.perf_counter()))
+                    continue
                 current_epoch = tick // self.total if self.total else 0
                 target = tick % self.total if self.total else tick
                 position = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
@@ -69,6 +75,7 @@ class LatestVideo:
                 if not ok:
                     raise RuntimeError("Cannot decode video frame")
                 epoch = current_epoch
+                last_tick = tick
                 sequence += 1
                 sample = VideoFrame(sequence, epoch, target / self.fps, time.perf_counter(), image)
                 with self.condition:

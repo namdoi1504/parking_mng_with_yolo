@@ -2,8 +2,11 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from ..db import get_db
+from ..config import settings
+from ..parking_cache import parking_cache
 from .. import models
 from ..schemas import (
     AIParkingStatusRequest,
@@ -20,7 +23,6 @@ from .common import commit, get_or_404, lock_camera_creation, advance_camera_seq
 router = APIRouter(prefix="/api/ai", tags=["AI Engine"])
 
 
-# Schema nội bộ cho sync (không cần thêm vào schemas.py)
 class SlotSyncItem(BaseModel):
     slot_code: str = Field(min_length=1, max_length=50)
     roi_coordinates: list[ROICoordinate]   # [{"x": float, "y": float}, ...]
@@ -30,7 +32,6 @@ class SlotSyncItem(BaseModel):
 
 class SlotSyncRequest(BaseModel):
     camera_id: int = Field(gt=0, le=2147483647)
-    # Thông tin camera — tự tạo nếu chưa có trong DB
     camera_name: str = Field(default="Camera 1", min_length=1, max_length=100)
     camera_source_url: str = Field(default="file://parking_car.mp4", min_length=1, max_length=255)
     camera_source_type: CameraSourceType = CameraSourceType.VIDEO_FILE
@@ -58,16 +59,9 @@ class SlotSyncResult(BaseModel):
     summary="AI engine đồng bộ danh sách slot với DB khi khởi động"
 )
 def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
-    """
-    Upsert toàn bộ slot từ slots_config.json vào DB.
-    - Slot chưa có → INSERT
-    - Slot đã có → UPDATE roi_coordinates nếu thay đổi
-    Tự động thích nghi với số lượng slot bất kỳ.
-    """
     created = updated = unchanged = 0
     lock_camera_creation(db)
 
-    # ① Đảm bảo camera tồn tại trước (tránh FK violation)
     camera = db.query(models.Camera).filter(models.Camera.id == data.camera_id).first()
     if camera is None:
         camera = models.Camera(
@@ -84,7 +78,6 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
     else:
         actual_camera_id = camera.id
 
-    # ② Lấy TẤT CẢ slot hiện có của camera này bằng 1 query
     db.query(models.Camera).filter_by(id=actual_camera_id).with_for_update().one()
     existing_slots = (
         db.query(models.ParkingSlot)
@@ -95,7 +88,6 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
         s.slot_code: s for s in existing_slots
     }
 
-    # ③ Phân loại: cần tạo mới vs cập nhật
     conflicts = db.query(models.ParkingSlot.id).filter(
         models.ParkingSlot.slot_code.in_([slot.slot_code for slot in data.slots]),
         models.ParkingSlot.camera_id != actual_camera_id,
@@ -125,11 +117,13 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
             else:
                 unchanged += 1
 
-    # ④ Bulk insert slots mới (1 câu SQL duy nhất)
     if new_slots:
         db.add_all(new_slots)
 
     commit(db)
+
+    if created or updated:
+        parking_cache.invalidate()
 
     return SlotSyncResult(
         camera_id = actual_camera_id,
@@ -154,12 +148,20 @@ async def receive_parking_status(
     Endpoint dành riêng cho AI engine (YOLO).
     Nhận danh sách trạng thái slot → cập nhật DB → broadcast WebSocket đến FE.
     """
+    result, ws_messages = await run_in_threadpool(apply_parking_status, data, db)
+    # Publish only after the transaction succeeded, on the application's event loop.
+    for msg in ws_messages:
+        await manager.broadcast(msg)
+    return result
+
+
+def apply_parking_status(data: AIParkingStatusRequest, db: Session):
+    """Run the complete synchronous transaction off the streaming event loop."""
     get_or_404(db, models.Camera, data.camera_id, lock=True)
     changed       = 0
     unchanged     = 0
     unknown_slots = []
 
-    # ── 1 query lấy toàn bộ slot liên quan (thay vì 470 query riêng lẻ) ──
     incoming_codes = [s.slot_code for s in data.parking_slots]
     slot_rows = (
         db.query(models.ParkingSlot)
@@ -208,15 +210,13 @@ async def receive_parking_status(
         else:
             unchanged += 1
 
-    # ── Bulk insert events (1 câu SQL) ──
     if new_events:
         db.add_all(new_events)
 
     commit(db)
 
-    # ── Broadcast WebSocket sau commit ──
-    for msg in ws_messages:
-        await manager.broadcast(msg)
+    if changed:
+        parking_cache.invalidate()
 
     return AIUpdateResult(
         camera_id       = data.camera_id,
@@ -224,7 +224,7 @@ async def receive_parking_status(
         changed_slots   = changed,
         unchanged_slots = unchanged,
         unknown_slots   = unknown_slots,
-    )
+    ), ws_messages
 
 
 
@@ -234,25 +234,7 @@ async def receive_parking_status(
     summary="Tổng hợp trạng thái bãi đỗ"
 )
 def get_parking_summary(db: Session = Depends(get_db)):
-    """
-    FE gọi lúc load trang để lấy trạng thái ban đầu.
-    Sau đó dùng WebSocket để nhận update real-time.
-    """
-    slots = db.query(models.ParkingSlot).all()
-    total    = len(slots)
-    occupied = sum(1 for s in slots if s.status == "OCCUPIED")
-    empty    = sum(1 for s in slots if s.status == "EMPTY")
-    reserved = sum(1 for s in slots if s.status == "RESERVED")
-    unknown  = sum(1 for s in slots if s.status == "UNKNOWN")
-
-    return ParkingSummary(
-        total_slots    = total,
-        empty_slots    = empty,
-        occupied_slots = occupied,
-        reserved_slots = reserved,
-        unknown_slots  = unknown,
-        has_unknown_alert = unknown > 0,
-    )
+    return get_parking_map(db).summary
 
 
 @router.get(
@@ -261,10 +243,10 @@ def get_parking_summary(db: Session = Depends(get_db)):
     summary="Bản đồ bãi đỗ đầy đủ (summary + từng slot)"
 )
 def get_parking_map(db: Session = Depends(get_db)):
-    """
-    FE gọi để render bản đồ toàn bộ bãi đỗ.
-    Trả về summary + danh sách slot với tọa độ ROI và trạng thái.
-    """
+    return parking_cache.get(lambda: load_parking_map(db), settings.PARKING_CACHE_TTL_SECONDS)
+
+
+def load_parking_map(db: Session):
     slots = db.query(models.ParkingSlot).order_by(models.ParkingSlot.slot_code).all()
     total    = len(slots)
     occupied = sum(1 for s in slots if s.status == "OCCUPIED")

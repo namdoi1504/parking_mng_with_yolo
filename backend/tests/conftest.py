@@ -51,6 +51,8 @@ def database():
 @pytest.fixture
 def client(database, monkeypatch):
     import app.main as main
+    from app.parking_cache import parking_cache
+    parking_cache.invalidate()
     monkeypatch.setattr(main, "SessionLocal", database)
     def override_db():
         with database() as db:
@@ -59,6 +61,7 @@ def client(database, monkeypatch):
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
+    parking_cache.invalidate()
 
 
 @pytest.fixture

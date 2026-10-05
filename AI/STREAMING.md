@@ -15,7 +15,8 @@ python -u AI/datasets/parking_agent.py --stream --no-window
 
 Start the frontend with its usual `pnpm dev` command and sign in at
 `http://localhost:5173/monitor`. The Vite development proxy forwards `/ai-stream`
-to the separate AI preview service on `127.0.0.1:8001`.
+to the backend on port 8000. Its authenticated gateway reads from the AI preview
+service on `127.0.0.1:8001`.
 
 The decoder, YOLO inference, and preview renderer run independently. Each keeps
 only its latest frame/result. The renderer overlays the latest AI statuses onto
@@ -27,12 +28,16 @@ accepted. Stop with Ctrl+C in the AI terminal.
 
 This is **a local development/demo preview**, not an authenticated production
 video service. It binds only to loopback. Do not expose port 8001 or the Vite
-proxy publicly without adding a separate authenticated gateway. The production
-frontend needs an equivalent same-origin proxy; Vite's build does not include
-its development server proxy.
+proxy publicly without an authenticated gateway. The backend now provides
+`/ai-stream/status` and `/ai-stream/video`, both requiring `parking:view`.
+The frontend uses its configured `VITE_API_BASE_URL` for status and MJPEG fetches,
+including Bearer authorization and the ngrok warning bypass header. Tunnel port
+8000 only; keep port 8001 on loopback. Restart the backend and redeploy the frontend
+after updating. Vite's build does not include its development server proxy.
 
 For a standalone local preview without dashboard login, open
-`http://127.0.0.1:8001/` (or `http://localhost:5173/ai-stream/` through Vite).
+`http://127.0.0.1:8001/`. The dashboard gateway requires login; it does not serve
+this standalone preview page.
 
 The file loops on a wall-clock playback timeline. Intervening frames are skipped
 when inference cannot keep up; the stream shows only frames actually processed.
@@ -44,7 +49,13 @@ unknown and counts are withheld in the UI after two seconds without a fresh
 result, or when the source loops and no result exists yet for the new loop.
 `ai_frame_id` and `ai_media_seconds` identify the result's source frame.
 Backend status notifications are sent every three seconds and may arrive later.
-Backend source code is unchanged.
+The backend gateway relays MJPEG without running YOLO. Each connection is renewed
+after 60 seconds to recheck access; the browser cancels streams with no frame for
+10 seconds. Tokens are sent in headers, never in the video URL.
+
+Playback ignores already-decoded clock ticks. An early timer wakeup must not
+seek backward one frame in compressed video; this previously produced long
+pauses. Restart the AI process after updating `live_pipeline.py`.
 Running the agent uses the existing slot-sync/status APIs and therefore updates
 the existing camera 1 parking data. Blue means occupied; green means empty,
 matching the web interface.

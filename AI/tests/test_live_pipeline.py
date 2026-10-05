@@ -38,6 +38,35 @@ class FakeCapture:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_early_timer_wakeup_does_not_seek_back_to_previous_frame(self):
+        cap = FakeCapture()
+        seeks = []
+        original_set = cap.set
+        def record_seek(key, value):
+            seeks.append(value)
+            return original_set(key, value)
+        cap.set = record_seek
+        with patch("AI.datasets.live_pipeline.cv2.VideoCapture", return_value=cap):
+            video = LatestVideo("fake.mp4")
+        clock = [0.0]
+        class EarlyWake:
+            calls = 0
+            stopped = False
+            def is_set(self):
+                return self.stopped
+            def wait(self, seconds):
+                self.calls += 1
+                # First sleep wakes one microsecond before the next tick.
+                clock[0] += max(0, seconds - 1e-6) if self.calls == 1 else seconds
+                self.stopped = self.calls >= 3
+                return self.stopped
+        video.stopping = EarlyWake()
+        with patch("AI.datasets.live_pipeline.time.perf_counter", side_effect=lambda: clock[0]):
+            video._decode()
+        self.assertEqual(seeks, [0])
+        self.assertEqual(video.latest.sequence, 2)
+        self.assertTrue(cap.released)
+
     def test_slow_consumer_skips_frames_and_loop_has_new_epoch(self):
         cap = FakeCapture()
         with patch("AI.datasets.live_pipeline.cv2.VideoCapture", return_value=cap):

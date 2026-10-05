@@ -2,10 +2,11 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from .config import settings
 from .db import SessionLocal
 from .oauth2 import authenticate_token
-from .routers import auth, parking, users, roles, permissions, cameras, stats
+from .routers import auth, parking, users, roles, permissions, cameras, stats, stream
 from .statistics import aggregate_stats
 from .websocket_manager import manager
 
@@ -33,7 +34,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "ngrok-skip-browser-warning"],
 )
-for route in (auth, users, roles, permissions, cameras, parking, stats):
+for route in (auth, users, roles, permissions, cameras, parking, stats, stream):
     app.include_router(route.router)
 
 
@@ -54,7 +55,7 @@ async def websocket_parking(websocket: WebSocket):
         except HTTPException:
             return False
 
-    if not authorized():
+    if not await run_in_threadpool(authorized):
         await websocket.close(code=1008)
         return
     await manager.connect(websocket, subprotocol="parking" if "parking" in protocols else None,
@@ -62,7 +63,7 @@ async def websocket_parking(websocket: WebSocket):
     try:
         while True:
             await websocket.receive_text()
-            if not authorized():
+            if not await run_in_threadpool(authorized):
                 await websocket.close(code=1008)
                 break
     except WebSocketDisconnect:
