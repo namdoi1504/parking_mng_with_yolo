@@ -161,6 +161,7 @@ def apply_parking_status(data: AIParkingStatusRequest, db: Session):
     changed       = 0
     unchanged     = 0
     unknown_slots = []
+    reserved_skipped_slots = []
 
     incoming_codes = [s.slot_code for s in data.parking_slots]
     slot_rows = (
@@ -169,6 +170,7 @@ def apply_parking_status(data: AIParkingStatusRequest, db: Session):
                 models.ParkingSlot.camera_id == data.camera_id)
         .order_by(models.ParkingSlot.id)
         .with_for_update()
+        .populate_existing()
         .all()
     )
     slot_by_code: dict[str, models.ParkingSlot] = {s.slot_code: s for s in slot_rows}
@@ -182,6 +184,10 @@ def apply_parking_status(data: AIParkingStatusRequest, db: Session):
 
         if not slot:
             unknown_slots.append(slot_data.slot_code)
+            continue
+
+        if slot.status == "RESERVED":
+            reserved_skipped_slots.append(slot.slot_code)
             continue
 
         old_status = slot.status
@@ -224,6 +230,7 @@ def apply_parking_status(data: AIParkingStatusRequest, db: Session):
         changed_slots   = changed,
         unchanged_slots = unchanged,
         unknown_slots   = unknown_slots,
+        reserved_skipped_slots = reserved_skipped_slots,
     ), ws_messages
 
 

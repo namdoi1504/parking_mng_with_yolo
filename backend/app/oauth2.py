@@ -58,3 +58,10 @@ def require_permission(code: str):
 def revoke_user_tokens(db: Session, user: models.User):
     user.token_version += 1
     db.query(models.RefreshToken).filter_by(user_id=user.id, revoked=False).update({"revoked": True})
+
+
+def require_admin(user: models.User = Depends(get_current_user)):
+    """Use the current database role, not the role cached in the access token."""
+    if user.role is None or user.role.name != "Administrator":
+        raise HTTPException(403, "Administrator role required")
+    return user

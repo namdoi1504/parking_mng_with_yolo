@@ -288,9 +288,15 @@ class ParkingStatisticResponse(ORMBaseModel):
 
 # AI engine
 
+class AIDetectionStatusEnum(str, Enum):
+    EMPTY = "EMPTY"
+    OCCUPIED = "OCCUPIED"
+    UNKNOWN = "UNKNOWN"
+
+
 class ParkingSlotDetection(BaseModel):
     slot_code: str = Field(min_length=1, max_length=50)
-    status: ParkingSlotStatusEnum
+    status: AIDetectionStatusEnum
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
@@ -311,7 +317,8 @@ class AIUpdateResult(BaseModel):
     received_slots: int
     changed_slots: int
     unchanged_slots: int
-    unknown_slots: list[str] = []
+    unknown_slots: list[str] = Field(default_factory=list)
+    reserved_skipped_slots: list[str] = Field(default_factory=list)
 
 
 # Dashboard / map

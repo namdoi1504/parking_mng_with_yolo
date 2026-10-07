@@ -6,7 +6,7 @@ from starlette.concurrency import run_in_threadpool
 from .config import settings
 from .db import SessionLocal
 from .oauth2 import authenticate_token
-from .routers import auth, parking, users, roles, permissions, cameras, stats, stream
+from .routers import auth, parking, users, roles, permissions, cameras, stats, stream, parking_slots
 from .statistics import aggregate_stats
 from .websocket_manager import manager
 
@@ -34,7 +34,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "ngrok-skip-browser-warning"],
 )
-for route in (auth, users, roles, permissions, cameras, parking, stats, stream):
+for route in (auth, users, roles, permissions, cameras, parking, stats, stream, parking_slots):
     app.include_router(route.router)
 
 
