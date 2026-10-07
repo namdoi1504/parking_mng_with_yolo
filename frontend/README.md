@@ -4,13 +4,13 @@
 
 Trang `/login` dùng hướng thiết kế đã duyệt: cảnh bãi xe sáng, form trắng, nút xanh và nội dung “Quản lý bãi đỗ xe / Xem camera và trạng thái ô đỗ.” Bố cục chuyển thành ảnh phía trên và form gối lên ảnh ở điện thoại. Styles riêng trong `src/pages/LoginPage.css` chỉ áp dụng cho trang đăng nhập.
 
-Ảnh ý tưởng được tạo bằng built-in image_gen và lưu tại `public/images/parking-login-entrance.png`; đây không phải ảnh bãi xe thực tế. Prompt: [IMAGE-PROMPT-V2.md](../docs/uiux-preview/IMAGE-PROMPT-V2.md). Trang chính dùng xác thực thật, ghi nhớ phiên, hiện/ẩn mật khẩu, lỗi API và tra cứu công khai như trước. Hỗ trợ mật khẩu hướng dẫn liên hệ quản trị viên.
+Ảnh ý tưởng được tạo bằng built-in image_gen và lưu tại `public/images/parking-login-entrance.png`; đây không phải ảnh bãi xe thực tế. Prompt: [Ảnh đăng nhập](../docs/design/login-image.md). Trang chính dùng xác thực thật, ghi nhớ phiên, hiện/ẩn mật khẩu, lỗi API và tra cứu công khai như trước. Hỗ trợ mật khẩu hướng dẫn liên hệ quản trị viên.
 
 ## Giao diện vận hành
 
 Các trang giám sát, bản đồ, tra cứu, thống kê, quản lý và phân quyền dùng cùng phong cách đã duyệt: nền xanh nhạt, thanh điều hướng trắng, chữ và biểu tượng nhất quán, nút chính xanh, bảng và form trên nền trắng. `src/workspace.css` chứa styles chung, nạp sau `src/styles.css`; menu chia thành Vận hành, Báo cáo và Quản trị. Đầu trang vận hành chỉ có tiêu đề, mô tả và thao tác; ảnh trang trí chỉ dùng ở đăng nhập.
 
-Tra cứu công khai có header riêng và nút **Tìm ô trống** để chọn ô trống đầu tiên trong kết quả hiện tại, chuyển về bản đồ và xem chi tiết. Nút không giữ chỗ hoặc tính khoảng cách. Thiết kế và kiểm tra responsive: [UIUX-V2-DIRECTION.md](../docs/UIUX-V2-DIRECTION.md).
+Tra cứu công khai có header riêng và nút **Tìm ô trống** để chọn ô trống đầu tiên trong kết quả hiện tại, chuyển về bản đồ và xem chi tiết. Nút không giữ chỗ hoặc tính khoảng cách. Quy ước giao diện: [Thiết kế frontend](../docs/design/interface.md).
 
 ## Chạy cùng backend
 
@@ -84,4 +84,4 @@ pnpm build
 
 Nút đăng xuất gọi `POST /auth/logout` để thu hồi phiên ở backend trước khi xóa token. Thao tác giữ chỗ dùng các endpoint `/parking-slots/{id}/...`; proxy Vite đã có tiền tố `/parking-slots`. Giao diện cập nhật ô và tổng hợp sau phản hồi thành công, tải lại trạng thái nếu backend từ chối do ô đã đổi trạng thái.
 
-Đối chiếu API, quyền và các chức năng backend chưa hỗ trợ: [FRONTEND-BACKEND-COVERAGE.md](../docs/FRONTEND-BACKEND-COVERAGE.md).
+Đối chiếu API, quyền và các chức năng backend chưa hỗ trợ: [Đối chiếu frontend/backend](../docs/frontend/backend-coverage.md).

@@ -33,3 +33,12 @@ BAO_CAO_CHUONG_4.docx
 __pycache__/
 *.py[cod]
 .codex/
+
+# Local development output; keep screenshots and prototypes out of Git
+/artifacts/
+/preview-*.png
+/preview-*.jpg
+/frontend/preview-*.png
+/frontend/preview-*.jpg
+/AI/preview-*.jpg
+/.idea/

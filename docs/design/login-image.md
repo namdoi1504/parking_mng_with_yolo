@@ -1,6 +1,6 @@
-# Ảnh nền đăng nhập — mẫu 02
+# Ảnh nền đăng nhập
 
-Tạo bằng built-in image_gen ngày 08/10/2026. Asset dùng trong mẫu: `assets/parking-entrance-v2.png`. Giữ ảnh bản trước để so sánh. Ảnh ý tưởng, không phải ảnh bãi thực tế.
+Tạo bằng built-in image_gen ngày 08/10/2026. Asset ứng dụng: `frontend/public/images/parking-login-entrance.png`. Ảnh ý tưởng, không phải ảnh bãi thực tế.
 
 Prompt cuối cùng:
 
