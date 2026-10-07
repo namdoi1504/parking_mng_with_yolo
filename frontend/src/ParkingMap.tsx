@@ -32,20 +32,26 @@ export function ParkingMap({ slots, selectedId, onSelect, compact = false, defau
   const markerId = useId().replace(/:/g, "");
   // Live status changes must not rebuild the image-space road graph.
   const layoutKey = JSON.stringify(slots.map((s) => [s.id, s.camera_id, s.slot_code, s.roi_coordinates]));
-  const network = useMemo(() => {
-    const layout: ParkingSlot[] = JSON.parse(layoutKey).map(([id, camera_id, slot_code, roi_coordinates]: [number, number, string, ParkingSlot["roi_coordinates"]]) => ({ id, camera_id, slot_code, roi_coordinates, status: "UNKNOWN", col: 0, row: 0, updated_at: "" }));
-    return calibrated(layout) ? buildRoadNetwork(layout) : null;
-  }, [layoutKey]);
+  const layout = useMemo<ParkingSlot[]>(() => JSON.parse(layoutKey).map(
+    ([id, camera_id, slot_code, roi_coordinates]: [number, number, string, ParkingSlot["roi_coordinates"]]) =>
+      ({ id, camera_id, slot_code, roi_coordinates, status: "UNKNOWN", col: 0, row: 0, updated_at: "" })
+  ), [layoutKey]);
+  const network = useMemo(() => calibrated(layout) ? buildRoadNetwork(layout) : null, [layout]);
   const selected = slots.find((s) => s.id === selectedId);
-  const route = useMemo(() => network && selected ? slotRoute(network, selected, direction) : null, [network, selected, direction]);
-  const geometry = useMemo(() => mapGeometry(slots), [slots]);
+  const selectedLayout = layout.find((slot) => slot.id === selectedId);
+  const selectedStatus = selected?.status;
+  const route = useMemo(() => network && selectedLayout && selectedStatus ? slotRoute(network, { ...selectedLayout, status: selectedStatus }, direction) : null,
+    [network, selectedLayout, selectedStatus, direction]);
+  const geometry = useMemo(() => mapGeometry(layout), [layout]);
+  const currentSlots = new Map(slots.map((slot) => [slot.id, slot]));
   const viewport = useRef<HTMLDivElement>(null);
   const activeId = selectedId ?? slots[0]?.id;
+  const activeOnMap = geometry?.valid.some((slot) => slot.id === activeId);
   useEffect(() => { setZoom(1); setQuery(""); setFilter(defaultFilter); viewport.current?.scrollTo?.(0, 0); }, [slots[0]?.camera_id, defaultFilter]);
   const matches = (slot: ParkingSlot) => (filter === "ALL" || slot.status === filter) && slot.slot_code.toLowerCase().includes(query.trim().toLowerCase());
   const filtered = slots.filter(matches);
   function keySelect(event: React.KeyboardEvent<SVGGElement>, index: number) {
-    const list = geometry?.valid ?? [];
+    const list = geometry?.valid.map((slot) => currentSlots.get(slot.id)!) ?? [];
     if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(list[index]); }
     const step = ["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : ["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 0;
     if (step && list.length) {
@@ -81,9 +87,10 @@ export function ParkingMap({ slots, selectedId, onSelect, compact = false, defau
           <text x="1770" y="263" fill="#173c79" fontSize="22" fontWeight="700">CỔNG RA</text>
           {route && <><polyline points={route.map((p) => `${p.x},${p.y}`).join(" ")} className="map-route-halo" /><polyline points={route.map((p) => `${p.x},${p.y}`).join(" ")} className="map-route-line" markerEnd={`url(#${markerId})`} /><circle cx={route[direction === "entry" ? route.length - 1 : 0].x} cy={route[direction === "entry" ? route.length - 1 : 0].y} r="9" fill="#2563eb" stroke="white" strokeWidth="3" /></>}
         </g>}
-        {geometry.valid.map((slot, index) => {
+        {geometry.valid.map((position, index) => {
+          const slot = currentSlots.get(position.id)!;
           const points = slot.roi_coordinates;
-          return <g key={slot.id} data-slot-id={slot.id} role="button" tabIndex={activeId === slot.id || (!geometry.valid.some((s) => s.id === activeId) && index === 0) ? 0 : -1}
+          return <g key={slot.id} data-slot-id={slot.id} role="button" tabIndex={activeId === slot.id || (!activeOnMap && index === 0) ? 0 : -1}
             aria-label={`Ô ${slot.slot_code}, Camera ${slot.camera_id}: ${statusMeta[slot.status].label}`} aria-pressed={slot.id === selectedId}
             className={`map-slot status-${slot.status} ${selectedId === slot.id ? "selected" : ""} ${matches(slot) ? "" : "dimmed"}`}
             onClick={() => onSelect(slot)} onKeyDown={(e) => keySelect(e, index)}>
@@ -101,11 +108,11 @@ export function ParkingMap({ slots, selectedId, onSelect, compact = false, defau
   </section>;
 }
 
-export function SlotDetail({ slot }: { slot?: ParkingSlot }) {
+export function SlotDetail({ slot, actions }: { slot?: ParkingSlot; actions?: import("react").ReactNode }) {
   return <section className="panel inspector slot-inspector"><h2>Thông tin ô đỗ</h2>{slot ? <>
     <div className={`selected-slot-icon status-${slot.status}`}><CarFront size={32} /></div>
     <h3 className="slot-code-heading">{slot.slot_code}</h3><span className={`status-badge status-${slot.status}`}>{statusMeta[slot.status].label}</span>
     <dl className="detail-list"><div><dt>Camera phụ trách</dt><dd>Camera #{slot.camera_id}</dd></div><div><dt>Vị trí hàng / cột</dt><dd>{slot.row} / {slot.col} <small>(chỉ số từ 0)</small></dd></div><div><dt>Cập nhật gần nhất</dt><dd>{new Date(slot.updated_at).toLocaleString("vi-VN")}</dd></div></dl>
-    <p className="supporting-text">Trạng thái do AI ghi nhận. Chọn ô không giữ chỗ và không thay đổi dữ liệu hệ thống.</p>
+    {actions ?? <p className="supporting-text">Trạng thái do AI ghi nhận. Chọn ô để xem thông tin.</p>}
   </> : <EmptyState title="Chọn một vị trí" text="Chọn ô trên bản đồ để xem trạng thái và camera phụ trách." />}</section>;
 }

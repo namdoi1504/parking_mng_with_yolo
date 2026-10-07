@@ -18,11 +18,9 @@ datasets/parking_car.mp4
 datasets/parking car result.avi
 parking_ai_bugs_and_flow.md
 PROJECT_ARCHITECTURE.md
-<<<<<<< HEAD
 report_chapter4
 BAO_CAO_CHUONG_4_CAP_NHAT.docx
 BAO_CAO_CHUONG_4.docx
-=======
 # Local secrets, videos, and generated caches
 .env
 .env.*
@@ -35,4 +33,3 @@ BAO_CAO_CHUONG_4.docx
 __pycache__/
 *.py[cod]
 .codex/
->>>>>>> cfdf59e8a12d5ac9b812fc88a7ee239a4f6dc161

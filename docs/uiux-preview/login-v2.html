@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>ImperiaSmart · Mẫu đăng nhập mới</title>
+  <link rel="stylesheet" href="login-v2.css">
+  <script src="login-v2.js" defer></script>
+</head>
+<body>
+  <header class="preview-ribbon"><span>Bản mẫu 02 · Theo ảnh tham chiếu</span><a href="index.html">Xem các màn hình khác <span aria-hidden="true">↗</span></a></header>
+  <main>
+    <div class="login-scene">
+      <img class="scene-image" src="assets/parking-entrance-v2.png" width="1536" height="1024" alt="">
+      <div class="scene-wash"></div>
+      <div class="scene-content">
+        <a class="brand" href="index.html?view=driver" aria-label="ImperiaSmart, tra cứu chỗ đỗ">
+          <span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M8 25V8h9a6 6 0 0 1 0 12h-4" stroke="white" stroke-width="4" stroke-linecap="round"/><path d="m20 25 4-4" stroke="#ffe2a5" stroke-width="4" stroke-linecap="round"/></svg></span>
+          <span>Imperia<span class="brand-accent">Smart</span><small>PARKING</small></span>
+        </a>
+        <div class="welcome"><h1>Quản lý<br>bãi đỗ xe</h1><p>Xem camera và trạng thái ô đỗ.</p></div>
+        <span class="scene-caption">Ảnh minh họa · ImperiaSmart Parking</span>
+      </div>
+    </div>
+    <section class="form-region" aria-label="Mẫu đăng nhập">
+      <div class="login-sheet">
+        <div class="desktop-intro"><h2>Đăng nhập</h2><p>Sử dụng tài khoản đã được cấp.</p></div>
+        <form id="preview-form">
+          <div class="input-field">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>
+            <div><label for="account">Tên đăng nhập</label><input id="account" placeholder="Nhập tên đăng nhập" readonly aria-describedby="sample-note" autocomplete="off"></div>
+          </div>
+          <div class="input-field">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 4v3"/></svg>
+            <div><label for="password">Mật khẩu</label><input id="password" type="password" value="sample123" readonly aria-describedby="sample-note" autocomplete="off"></div>
+            <button class="reveal" type="button" id="reveal" aria-label="Hiện mật khẩu mẫu" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="m3 3 18 18"/></svg></button>
+          </div>
+          <div class="form-options"><label class="remember"><input type="checkbox" id="remember"><span>Ghi nhớ đăng nhập</span></label><button class="help-link" type="button" id="help">Quên mật khẩu?</button></div>
+          <button class="submit" type="submit">Đăng nhập <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>
+          <div class="separator"><span>hoặc</span></div>
+          <a class="lookup" href="index.html?view=driver"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg>Tra cứu chỗ đỗ</a>
+          <p class="sample-note" id="sample-note">Bản mẫu giao diện · ô nhập chỉ đọc, không lưu tài khoản.<br>Nút đăng nhập mở màn hình điều hành minh họa.</p>
+        </form>
+      </div>
+      <p class="account-help">Bạn cần tài khoản? <button id="contact" class="help-link" type="button">Liên hệ quản trị viên</button></p>
+    </section>
+  </main>
+  <div id="notification" role="status" aria-live="polite"></div>
+</body>
+</html>

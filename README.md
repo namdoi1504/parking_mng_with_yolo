@@ -64,11 +64,11 @@ Mở <http://localhost:5173> và đăng nhập bằng tài khoản vừa tạo. 
 | Đường dẫn | Chức năng |
 | --- | --- |
 | `/monitor` | Video AI, trạng thái kết nối, tốc độ xử lý và bản đồ theo camera |
-| `/map` | Tìm/lọc ô đỗ, phóng to, xem chi tiết và tuyến tham khảo cho layout camera 1 |
+| `/map` | Bản đồ, tuyến tham khảo; Administrator giữ/hủy chỗ và xác nhận xe đến |
 | `/lookup` | Tra cứu công khai ô đỗ; không giữ chỗ |
-| `/management` | Quản lý tài khoản và camera theo quyền |
-| `/access` | Quản lý vai trò và quyền |
-| `/statistics` | Thống kê và xuất CSV |
+| `/management` | Thêm/sửa/xóa, cập nhật trạng thái tài khoản và camera theo quyền |
+| `/access` | Tạo/sửa/xóa vai trò, gán/gỡ quyền và tạo/sửa permission |
+| `/statistics` | Báo cáo giờ/ngày, bộ lọc camera và xuất CSV |
 
 Giám sát, bản đồ và tra cứu tải trạng thái qua `GET /api/ai/map` mỗi 5 giây. Frontend hiện không mở WebSocket trạng thái. Video MJPEG chạy riêng; bảng thay đổi chỉ so sánh các snapshot trong phiên, có thể bỏ lỡ thay đổi giữa hai lần tải và không phải lịch sử đầy đủ.
 

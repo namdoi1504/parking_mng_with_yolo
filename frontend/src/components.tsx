@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { BarChart3, Camera, CarFront, ChevronRight, CircleGauge, Compass, LogOut, Map, Menu, ShieldCheck, Sparkles, Users, X } from "lucide-react";
-import { clearTokens, getClaims, isDemoMode } from "./api";
+import { BarChart3, Camera, CarFront, Check, ChevronRight, CircleGauge, Compass, Info, LockKeyhole, LogOut, Map, Menu, ShieldCheck, TriangleAlert, Users, X } from "lucide-react";
+import { apiFetch, clearTokens, getClaims, isDemoMode } from "./api";
 import type { ParkingSlot, ParkingSummary, SlotStatus } from "./types";
 
 const nav: { to: string; label: string; icon: ComponentType<{ size?: number }> }[] = [
@@ -31,7 +31,18 @@ export function AppShell({ children, title, eyebrow, actions, connection, connec
   const navigate = useNavigate();
   const location = useLocation();
   const claims = getClaims();
+  const publicLookup = location.pathname === "/lookup" && !claims && !isDemoMode();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false), [logoutError, setLogoutError] = useState("");
+  async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true); setLogoutError("");
+    try {
+      if (!isDemoMode()) await apiFetch("/auth/logout", { method: "POST" });
+      clearTokens(); navigate("/login", { replace: true });
+    } catch (reason) { setLogoutError(`Chưa thu hồi được phiên đăng nhập: ${reason instanceof Error ? reason.message : "Không kết nối được backend"}. Thử đăng xuất lại.`); }
+    finally { setLoggingOut(false); }
+  }
   const menuButton = useRef<HTMLButtonElement>(null), closeButton = useRef<HTMLButtonElement>(null), wasOpen = useRef(false);
   useEffect(() => { if (menuOpen) closeButton.current?.focus(); else if (wasOpen.current) menuButton.current?.focus(); wasOpen.current = menuOpen; }, [menuOpen]);
   useEffect(() => setMenuOpen(false), [location.pathname]);
@@ -39,30 +50,36 @@ export function AppShell({ children, title, eyebrow, actions, connection, connec
     function close(event: KeyboardEvent) { if (event.key === "Escape") setMenuOpen(false); }
     window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close);
   }, []);
-  return <div className="app-shell">
-    <aside className={`sidebar ${menuOpen ? "open" : ""}`} id="main-sidebar">
+  return <div className={`app-shell workspace-${location.pathname.slice(1)}${publicLookup ? " public-shell" : ""}`}>
+    {!publicLookup && <aside className={`sidebar ${menuOpen ? "open" : ""}`} id="main-sidebar">
       {menuOpen && <button ref={closeButton} className="sidebar-close icon-button" aria-label="Đóng menu điều hướng" onClick={() => setMenuOpen(false)}><X /></button>}
-      <div className="brand"><span className="brand-mark"><CarFront size={22} /></span><span><b>ImperiaSmart</b><small>Parking Platform</small></span></div>
+      <div className="brand"><span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M8 25V8h9a6 6 0 0 1 0 12h-4" stroke="white" strokeWidth="4" strokeLinecap="round" /><path d="m20 25 4-4" stroke="#ffe2a5" strokeWidth="4" strokeLinecap="round" /></svg></span><span><b>Imperia<span className="brand-accent">Smart</span></b><small>PARKING</small></span></div>
       <nav aria-label="Điều hướng chính">
-        <p className="nav-caption">Quản lý</p>
-        {nav.filter((item) => canVisit(item.to)).map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+        {[{ label: "Vận hành", paths: ["/monitor", "/map", "/lookup"] }, { label: "Báo cáo", paths: ["/statistics"] }, { label: "Quản trị", paths: ["/management", "/access"] }].map((group) => {
+          const items = nav.filter((item) => group.paths.includes(item.to) && canVisit(item.to));
+          return items.length > 0 && <div className="nav-group" key={group.label}><p className="nav-caption">{group.label}</p>{items.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
           <Icon size={19} /><span>{label}</span><ChevronRight size={17} />
-        </NavLink>)}
+        </NavLink>)}</div>;
+        })}
       </nav>
       <div className="sidebar-footer"><b>IMPERIA GARDEN</b><span>Quản trị bãi đỗ thông minh</span></div>
-    </aside>
+    </aside>}
     <main className="main-content" inert={menuOpen || undefined}>
       <header className="topbar">
-        <button ref={menuButton} className="icon-button mobile-menu" aria-label={menuOpen ? "Đóng menu" : "Mở menu"} aria-expanded={menuOpen} aria-controls="main-sidebar" onClick={() => setMenuOpen(!menuOpen)}><Menu /></button>
-        <div className="breadcrumb"><b>{eyebrow}</b><span>/</span><span>{nav.find((item) => item.to === location.pathname)?.label ?? "Bảng điều khiển"}</span></div>
+        {!publicLookup && <button ref={menuButton} className="icon-button mobile-menu" aria-label={menuOpen ? "Đóng menu" : "Mở menu"} aria-expanded={menuOpen} aria-controls="main-sidebar" onClick={() => setMenuOpen(!menuOpen)}><Menu /></button>}
+        {publicLookup ? <div className="public-brand"><CarFront size={26} aria-hidden="true" /><b>Imperia<span>Smart</span></b></div> : <div className="breadcrumb"><b>{eyebrow}</b><span>/</span><span>{nav.find((item) => item.to === location.pathname)?.label ?? "Bảng điều khiển"}</span></div>}
         <div className="topbar-right">
           {connection && <ConnectionBadge label={connection} state={connectionState} />}
           <div className="user-pill"><span className="avatar">{claims?.role?.slice(0, 1) ?? "K"}</span><span><b>{claims ? `Tài khoản #${claims.user_id}` : "Khách tra cứu"}</b><small>{claims?.role ?? "Chỉ xem vị trí trống"}</small></span></div>
-          {claims ? <button className="icon-button" aria-label="Đăng xuất khỏi thiết bị này" onClick={() => { clearTokens(); navigate("/login"); }}><LogOut size={18} /></button> : <button className="secondary-button" onClick={() => navigate("/login")}>Đăng nhập</button>}
+          {claims ? <button className="icon-button" disabled={loggingOut} aria-label="Đăng xuất và thu hồi phiên đăng nhập" onClick={() => void logout()}><LogOut size={18} /></button> : <button className="secondary-button" onClick={() => navigate("/login")}>Đăng nhập</button>}
         </div>
       </header>
-      <section className="page-head"><div><h1>{title}</h1><p>{subtitleFor(location.pathname)}</p></div><div className="page-actions">{actions}</div></section>
+      <section className="page-head">
+        <div className="page-head-copy"><h1>{title}</h1><p>{subtitleFor(location.pathname)}</p></div>
+        <div className="page-actions">{actions}</div>
+      </section>
       {isDemoMode() && <InlineNotice tone="warning">Bản xem giao diện · dữ liệu minh họa, không phải trạng thái bãi đỗ thực tế.</InlineNotice>}
+      {logoutError && <InlineNotice tone="error">{logoutError}<button className="secondary-button" onClick={() => { clearTokens(); navigate("/login", { replace: true }); }}>Chỉ xóa đăng nhập trên thiết bị này</button></InlineNotice>}
       {children}
       <footer className="workspace-footer"><span>ImperiaSmart / Parking Operations</span><span>Trạng thái nhận diện không thay thế kiểm tra thực tế</span></footer>
     </main>
@@ -71,12 +88,12 @@ export function AppShell({ children, title, eyebrow, actions, connection, connec
 }
 
 function subtitleFor(path: string) {
-  if (path === "/monitor") return "Theo dõi trạng thái ô đỗ và luồng cập nhật AI theo thời gian thực.";
-  if (path === "/map") return "Xem toàn bộ vị trí đỗ, lọc trạng thái và kiểm tra từng ô theo camera.";
-  if (path === "/statistics") return "Phân tích tỷ lệ lấp đầy theo giờ và xu hướng vận hành bãi xe.";
-  if (path === "/lookup") return "Tra cứu các vị trí còn trống theo dữ liệu nhận diện mới nhất.";
-  if (path === "/access") return "Quản lý vai trò và ma trận quyền truy cập hiện có của hệ thống.";
-  return "Quản lý tài khoản và nguồn camera kết nối với hệ thống.";
+  if (path === "/monitor") return "Xem camera, trạng thái ô đỗ và thay đổi mới nhất.";
+  if (path === "/map") return "Chọn camera và ô đỗ để xem chi tiết hoặc giữ chỗ.";
+  if (path === "/statistics") return "Xem tỷ lệ lấp đầy và xuất báo cáo theo ngày, giờ.";
+  if (path === "/lookup") return "Chọn camera, tìm ô trống và xem vị trí trên bản đồ.";
+  if (path === "/access") return "Chọn vai trò để xem và điều chỉnh quyền truy cập.";
+  return "Quản lý tài khoản nhân viên và nguồn camera.";
 }
 
 export const statusMeta: Record<SlotStatus, { label: string; short: string }> = {
@@ -85,13 +102,13 @@ export const statusMeta: Record<SlotStatus, { label: string; short: string }> = 
 };
 
 export function SummaryStrip({ summary }: { summary: ParkingSummary }) {
-  const rows: [string, number, string][] = [
-    ["Tổng vị trí", summary.total_slots, "total"], ["Trống", summary.empty_slots, "EMPTY"],
-    ["Đã đỗ", summary.occupied_slots, "OCCUPIED"], ["Đã giữ chỗ", summary.reserved_slots, "RESERVED"],
-    ["Chưa xác định", summary.unknown_slots, "UNKNOWN"]
+  const rows: [string, number, string, ComponentType<{ size?: number; "aria-hidden"?: boolean }>][] = [
+    ["Tổng vị trí", summary.total_slots, "total", Map], ["Trống", summary.empty_slots, "EMPTY", Check],
+    ["Đã đỗ", summary.occupied_slots, "OCCUPIED", CarFront], ["Đã giữ chỗ", summary.reserved_slots, "RESERVED", LockKeyhole],
+    ["Chưa xác định", summary.unknown_slots, "UNKNOWN", TriangleAlert]
   ];
   return <div className="summary-strip" aria-label="Tổng hợp trạng thái">
-    {rows.map(([label, value, key]) => <div className={`summary-item status-${key}`} key={key}><i /><span>{label}</span><strong>{value}</strong>{key !== "total" && <small>({summary.total_slots ? Math.round(value / summary.total_slots * 100) : 0}%)</small>}</div>)}
+    {rows.map(([label, value, key, Icon]) => <div className={`summary-item status-${key}`} key={key}><span className="summary-icon"><Icon size={18} aria-hidden /></span><span className="summary-label">{label}</span><strong>{value}</strong><small>{key === "total" ? "Trong camera đang chọn" : `${summary.total_slots ? Math.round(value / summary.total_slots * 100) : 0}% tổng số ô`}</small></div>)}
   </div>;
 }
 
@@ -104,9 +121,9 @@ export function ParkingGrid({ slots, selected, onSelect }: { slots: ParkingSlot[
 }
 
 export function EmptyState({ title, text }: { title: string; text: string }) {
-  return <div className="empty-state"><CircleGauge size={28} /><b>{title}</b><span>{text}</span></div>;
+  return <div className="empty-state"><span className="empty-state-icon"><CircleGauge size={26} aria-hidden="true" /></span><b>{title}</b><span>{text}</span></div>;
 }
 
 export function InlineNotice({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "warning" | "error" | "success" }) {
-  return <div className={`inline-notice ${tone}`} role={tone === "error" ? "alert" : "status"}><Sparkles size={18} />{children}</div>;
+  return <div className={`inline-notice ${tone}`} role={tone === "error" ? "alert" : "status"}><Info size={18} aria-hidden="true" />{children}</div>;
 }

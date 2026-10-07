@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { apiFetch, getAccessToken, getClaims } from "./api";
 import { demoMap } from "./demo";
 import { PARKING_POLL_MS, useParkingMap } from "./useParkingMap";
-vi.mock("./api", () => ({ apiFetch: vi.fn(), getAccessToken: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false, websocketUrl: () => "ws://test/parking" }));
+vi.mock("./api", () => ({ apiFetch: vi.fn(), getAccessToken: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false }));
 class TestSocket {
   static sockets: TestSocket[] = [];
   onopen?: () => void; onclose?: () => void; onmessage?: (event: { data: string }) => void;
@@ -23,6 +23,22 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 describe("shared parking data", () => {
+  it("does not overwrite a successful reservation with an older in-flight snapshot", async () => {
+    vi.useFakeTimers();
+    function MutationProbe() {
+      const { data, applySlot } = useParkingMap();
+      return <><span>{data?.slots[0].status}</span><button onClick={() => applySlot({ ...demoMap.slots[0], status: "RESERVED" })}>Reserve</button></>;
+    }
+    render(<MutationProbe />); await act(async () => {});
+    let resolve!: (value: unknown) => void;
+    vi.mocked(apiFetch).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(PARKING_POLL_MS); });
+    fireEvent.click(screen.getByRole("button", { name: "Reserve" }));
+    expect(screen.getByText("RESERVED")).toBeTruthy();
+    await act(async () => { resolve(demoMap); });
+    expect(screen.getByText("RESERVED")).toBeTruthy();
+    expect(screen.queryByText("EMPTY")).toBeNull();
+  });
   it("loads correctly after StrictMode cancels its first mount request", async () => {
     vi.mocked(apiFetch).mockImplementationOnce((_path, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")));
