@@ -3,7 +3,7 @@ import { apiFetch, isDemoMode } from "./api";
 import { demoMap } from "./demo";
 import type { ConnectionState } from "./components";
 import { summarize } from "./parking";
-import type { ParkingMap, SlotStatus } from "./types";
+import type { ParkingMap, ParkingSlot, SlotStatus } from "./types";
 
 export interface ParkingEvent { time: string; code: string; status: SlotStatus; camera: number }
 export const PARKING_POLL_MS = 5000;
@@ -46,12 +46,26 @@ export function useParkingMap() {
   useEffect(() => {
     function cancel() { const current = request.current; request.current = null; current?.abort(); }
     void load();
-    // No socket: per-event backend authorization currently blocks its API loop.
     // load() skips overlapping requests; failures keep the last successful map.
     const poll = window.setInterval(() => void load(), PARKING_POLL_MS);
     return () => { window.clearInterval(poll); cancel(); };
   }, [load]);
-  return { data, error, busy, updatedAt, connection, events, load };
+  const applySlot = useCallback((slot: ParkingSlot) => {
+    // Discard a snapshot started before the mutation completed.
+    const pending = request.current;
+    request.current = null;
+    pending?.abort();
+    setBusy(false);
+    const current = previous.current;
+    if (current) {
+      const slots = current.slots.map((item) => item.id === slot.id ? slot : item);
+      const next = { ...current, slots, summary: summarize(slots) };
+      previous.current = next;
+      setData(next);
+      setUpdatedAt(new Date());
+    }
+  }, []);
+  return { data, error, busy, updatedAt, connection, events, load, applySlot };
 }
 
 export const connectionLabels: Record<ConnectionState, string> = {
