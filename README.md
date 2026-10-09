@@ -1,143 +1,150 @@
 # Parking Management with YOLO
 
-Hệ thống quản lý bãi đỗ xe gồm backend FastAPI/PostgreSQL, frontend React/TypeScript và agent YOLO nhận diện trạng thái ô đỗ từ video. Agent gửi trạng thái về backend và cung cấp video MJPEG có lớp phủ ô đỗ để xem trên giao diện.
+A parking monitoring system using YOLO for car detection, FastAPI/PostgreSQL for the backend, and React/TypeScript for the frontend.
+The detector locates cars; polygon-based regions of interest (ROIs) determine whether parking spaces are occupied.
 
-## Thành phần
+## 1. Project Structure
 
-| Thư mục | Chức năng |
+| Location | Purpose |
 | --- | --- |
-| `backend/` | API đăng nhập, tài khoản, vai trò, camera, ô đỗ và thống kê; migration Alembic |
-| `frontend/` | Giao diện giám sát, bản đồ, tra cứu, quản trị và báo cáo bằng React/Vite |
-| `AI/datasets/` | Agent YOLO, cấu hình ROI, kiểm tra occupancy và dịch vụ preview |
-| `AI/tests/` | Kiểm thử pipeline video, ROI và MJPEG |
+| `AI/datasets/` | Model, video processing, ROI configuration, and parking agent |
+| `backend/` | FastAPI application, database migrations, and authentication |
+| `frontend/` | React/Vite monitoring interface |
+| `requirements.txt` | Local AI dependencies |
 
-## Chuẩn bị
+Download the [sample video from Google Drive](https://drive.google.com/drive/folders/1Oh1r7A_oLvEdj_CbBrOd79GN_CozVsHn?usp=drive_link) and save it as `AI/datasets/parking_car.mp4`.
 
-- Python và môi trường ảo tương thích với các phiên bản trong file requirements; backend dùng Python 3.11 trở lên.
-- PostgreSQL đang chạy và database đã được tạo.
-- Node.js tương thích với Vite và pnpm.
-- FFmpeg nếu cần tạo video chậm cho bản demo.
-- GPU CUDA là tùy chọn; agent tự dùng CPU nếu CUDA không khả dụng. Hiệu năng phụ thuộc thiết bị.
+## 2. Prepare the Dataset
 
-Các lệnh bên dưới dùng PowerShell, bắt đầu từ thư mục gốc repo. Mỗi dịch vụ chạy trong một terminal riêng.
+Collect varied images covering different lighting, car sizes, shadows, occlusion, and empty parking spaces.
+For video data, sample frames at intervals instead of using many nearly identical consecutive frames.
+Annotate every visible car with a bounding box using a tool that exports **YOLO detection** labels; use one class: `0: car`.
+Each image must have a matching label basename, such as `frame_001.jpg` and `frame_001.txt`.
+Each label line contains `class_id x_center y_center width height`, with coordinates normalized to `[0, 1]`:
 
-## 1. Khởi động backend
+```text
+0 0.500000 0.450000 0.200000 0.150000
+```
+
+Use multiple lines for multiple cars and an empty label file for an image without cars.
+An example split is **70% train, 20% val, 10% test**: train updates weights, val guides model selection, and test evaluates the final model.
+Split by recording session or video/time block to prevent adjacent frames from leaking between sets.
+Prepare this structure, compress the top-level `datasets/` folder as `datasets.zip`, and upload it to `My Drive/Parking_mng/`:
+
+```text
+datasets/cars/
+├── images/
+│   ├── train/
+│   ├── val/
+│   └── test/
+└── labels/
+    ├── train/
+    ├── val/
+    └── test/
+```
+
+Check image/label pairing, class IDs, box coordinates, and visual alignment before training.
+
+## 3. Train on Google Colab
+
+Open [Google Colab](https://colab.research.google.com/) and select **Runtime → Change runtime type → GPU**.
+Run the following cells in order. These are example settings, not the confirmed settings of the supplied training chart.
+
+```python
+%pip install ultralytics==8.4.126
+from google.colab import drive, files
+from pathlib import Path
+from ultralytics import YOLO
+import torch, zipfile, yaml
+
+drive.mount("/content/drive")
+assert torch.cuda.is_available(), "Enable a GPU runtime."
+with zipfile.ZipFile("/content/drive/MyDrive/Parking_mng/datasets.zip") as z:
+    z.extractall("/content")
+config = {"path": "/content/datasets/cars", "train": "images/train",
+          "val": "images/val", "test": "images/test", "names": {0: "car"}}
+Path("/content/cars.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
+```
+
+Fine-tune a pretrained detector on the single car class:
+
+```python
+model = YOLO("yolov8n.pt")  # Example starting model
+model.train(data="/content/cars.yaml", epochs=100, imgsz=640, batch=16,
+            device=0, patience=30, seed=42, plots=True,
+            project="/content/drive/MyDrive/Parking_mng/runs", name="cars")
+run_dir = Path(model.trainer.save_dir)
+print("Saved run:", run_dir)
+```
+
+`epochs` is the maximum number of passes over the training set; `patience` enables early stopping after no validation fitness improvement.
+`imgsz` controls training resolution; larger inputs may help small cars but require more memory. Reduce `batch` to `8` or `4` if GPU memory runs out.
+Outputs are saved to Drive: `weights/best.pt` is selected by validation fitness; `weights/last.pt` is the latest checkpoint.
+Keep `results.csv` for exact metrics, `results.png` for curves, and `args.yaml` for the training settings.
+Evaluate the selected checkpoint on held-out images, inspect predictions, and download it:
+
+```python
+best = YOLO(str(run_dir / "weights/best.pt"))
+assert best.names == {0: "car"}
+metrics = best.val(data="/content/cars.yaml", split="test", device=0)
+print("mAP50:", metrics.box.map50, "mAP50-95:", metrics.box.map)
+best.predict(source="/content/datasets/cars/images/test", conf=0.25, save=True)
+files.download(str(run_dir / "weights/best.pt"))
+```
+
+Save the downloaded checkpoint locally as `AI/datasets/cars_best.pt`; back up the existing model before replacing it.
+If no test split exists, omit `test` from the YAML and evaluate `split="val"`; report those as validation results.
+After an interruption, reinstall dependencies, mount Drive, and restore the dataset/YAML before calling `YOLO("<actual run>/weights/last.pt").train(resume=True)`.
+
+## 4. Training Results
+
+![Car detection training curves](docs/images/results.png)
+
+The supplied chart shows approximately 100 epochs. Losses generally decrease after early spikes, while detection metrics stabilize.
+`box_loss` measures localization error, `cls_loss` measures classification error, and `dfl_loss` relates to bounding box regression.
+Training and validation losses follow similar downward trends, suggesting convergence on this validation data.
+Visually estimated final scores are precision/recall **0.97–0.98**, mAP50 **about 0.98**, and mAP50–95 **about 0.80**.
+Precision describes correct detections among predictions; recall describes detected cars among labeled cars.
+mAP50 evaluates detection at IoU 0.50; mAP50–95 averages stricter IoU thresholds from 0.50 to 0.95.
+These are approximate detection scores, not parking occupancy accuracy. Exact values require `results.csv`; independent testing is still necessary.
+
+## 5. Backend and Frontend: Install and Run
+
+Use PowerShell from the repository root. Install compatible Python (backend: 3.11+), PostgreSQL, Node.js, and pnpm; create a PostgreSQL database first.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 Set-Location backend
-python -m pip install -r requirements-dev.txt
-Copy-Item .env.example .env
-```
-
-Chỉ sao chép `.env.example` ở lần thiết lập đầu tiên để tránh ghi đè cấu hình hiện có. Sửa `backend/.env` với thông tin PostgreSQL của bạn: `DATABASE_HOSTNAME`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USERNAME` và `DATABASE_PASSWORD`.
-
-Tạo giá trị riêng cho `SECRET_KEY`, tối thiểu 32 ký tự:
-
-```powershell
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-Sau khi lưu cấu hình database và secret:
-
-```powershell
+python -m pip install -r requirements.txt
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+# Edit .env with PostgreSQL credentials and a random SECRET_KEY (32+ characters).
 python -m alembic upgrade head
 python -m app.seed --admin-username admin
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Lệnh seed hỏi mật khẩu và xác nhận để tạo tài khoản quản trị. Chạy một lần cho username mới; tài khoản đã tồn tại sẽ không bị ghi đè. Tài liệu API: <http://127.0.0.1:8000/docs>.
+The seed command prompts for an administrator password. API docs: [localhost:8000/docs](http://localhost:8000/docs).
+In another terminal, run `cd frontend`, `pnpm install --frozen-lockfile`, then `pnpm dev`.
+Open [localhost:5173](http://localhost:5173) and log in with the administrator account.
 
-## 2. Khởi động frontend
+## 6. Run the AI
 
-Trong terminal mới, từ thư mục gốc:
-
-```powershell
-Set-Location frontend
-pnpm install --frozen-lockfile
-pnpm dev
-```
-
-Mở <http://localhost:5173> và đăng nhập bằng tài khoản vừa tạo. Vite chuyển tiếp API sang backend ở `127.0.0.1:8000` và `/ai-stream` sang agent ở `127.0.0.1:8001`.
-
-| Đường dẫn | Chức năng |
-| --- | --- |
-| `/monitor` | Video AI, trạng thái kết nối, tốc độ xử lý và bản đồ theo camera |
-| `/map` | Bản đồ, tuyến tham khảo; Administrator giữ/hủy chỗ và xác nhận xe đến |
-| `/lookup` | Tra cứu công khai ô đỗ; không giữ chỗ |
-| `/management` | Thêm/sửa/xóa, cập nhật trạng thái tài khoản và camera theo quyền |
-| `/access` | Tạo/sửa/xóa vai trò, gán/gỡ quyền và tạo/sửa permission |
-| `/statistics` | Báo cáo giờ/ngày, bộ lọc camera và xuất CSV |
-
-Giám sát, bản đồ và tra cứu tải trạng thái qua `GET /api/ai/map` mỗi 5 giây. Frontend hiện không mở WebSocket trạng thái. Video MJPEG chạy riêng; bảng thay đổi chỉ so sánh các snapshot trong phiên, có thể bỏ lỡ thay đổi giữa hai lần tải và không phải lịch sử đầy đủ.
-
-Để xem giao diện bằng dữ liệu mẫu:
-
-```powershell
-$env:VITE_DEMO_MODE='true'
-pnpm dev
-```
-
-Chế độ demo có nhãn minh họa và không ghi dữ liệu thật từ form quản trị. Khi quay lại backend thật, xóa biến và khởi động lại Vite:
-
-```powershell
-Remove-Item Env:VITE_DEMO_MODE -ErrorAction SilentlyContinue
-pnpm dev
-```
-
-Chi tiết màn hình, cấu hình và giới hạn bản đồ: [frontend/README.md](frontend/README.md).
-
-## 3. Khởi động agent AI và video preview
-
-Trong terminal mới, từ thư mục gốc:
+Ensure `AI/datasets/` contains `cars_best.pt`, `parking_car.mp4`, `sorted_bounding_boxes.json`, and `slots_config.json`.
+Use a single-class car model: the occupancy code processes detected boxes without filtering other classes.
+From the repository root in another terminal:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-```
-
-Agent dùng model `AI/datasets/cars_best.pt` cùng `slots_config.json` và `sorted_bounding_boxes.json`. Video không được đưa lên Git; đặt video nguồn `parking_car.mp4` vào `AI/datasets/` trên máy của bạn.
-
-Mặc định agent đọc `parking_car_slow_05x.mp4`. Tạo bản chạy chậm một nửa từ video nguồn:
-
-```powershell
-ffmpeg -n -i AI/datasets/parking_car.mp4 -vf "setpts=2*PTS" -af "atempo=0.5" -c:v libx264 -preset fast -crf 20 -r 30000/1001 -c:a aac -b:a 128k -movflags +faststart AI/datasets/parking_car_slow_05x.mp4
 python -u AI/datasets/parking_agent.py --stream --no-window
 ```
 
-Nếu dùng video khác, cập nhật `VIDEO_SOURCE` trong `AI/datasets/parking_agent.py`. Agent hiện đồng bộ và gửi trạng thái cho camera ID 1 mỗi 3 giây; tạo camera trong giao diện không tự khởi động agent.
-
-Xem video ở `/monitor`, hoặc mở preview độc lập tại <http://127.0.0.1:8001/>. `/video` cung cấp MJPEG, `/status` cung cấp thông tin xử lý và `/frame.jpg` cung cấp ảnh chụp. Dừng agent bằng Ctrl+C.
-
-Decoder, YOLO và renderer chạy độc lập, giữ kết quả mới nhất và bỏ frame cũ khi xử lý không kịp. FPS video và FPS AI được hiển thị riêng. Màu ô: xanh lá là trống, xanh dương là đã đỗ, vàng là giữ chỗ, đỏ là chưa xác định. Video vẫn có thể phát khi gửi trạng thái về backend thất bại; kiểm tra `sync_ok` trong `/status`.
-
-Preview chỉ phục vụ phát triển/demo cục bộ và bind loopback. Khi triển khai, cần proxy cùng origin và gateway xác thực cho video; bản build frontend không kèm proxy của Vite. Chi tiết pipeline và benchmark: [AI/STREAMING.md](AI/STREAMING.md).
-
-## Kiểm tra
-
-Chạy kiểm thử AI từ thư mục gốc sau khi cài dependency AI:
-
-```powershell
-python -m unittest discover -s AI/tests -v
-```
-
-Kiểm thử backend từ `backend/` sau khi cài `requirements-dev.txt`:
-
-```powershell
-python -m pytest
-```
-
-Kiểm thử, build và audit frontend từ `frontend/`:
-
-```powershell
-pnpm test
-pnpm build
-pnpm audit
-```
-
-`pnpm build` tạo sản phẩm trong `frontend/dist/`. Test frontend dùng API mock. Benchmark AI cần video/model cục bộ; xem hướng dẫn trong `AI/STREAMING.md`.
-
-## File cục bộ
-
-Video, `.env`, môi trường ảo, `node_modules` và cache không cần commit. `.gitignore` loại các file môi trường thực tế và cho phép template `.env.example`; không đưa mật khẩu hoặc secret thật vào template.
+Start the backend first. The agent uses CUDA when available, otherwise CPU; a compatible GPU driver and PyTorch build are required for CUDA.
+It detects cars, checks whether box centers lie within parking polygons, and sends `OCCUPIED`/`EMPTY` updates every 3 seconds for camera ID `1`.
+Watch `/monitor` in the frontend or the [local preview](http://127.0.0.1:8001/); check `/status` on port 8001 for `sync_ok`. Stop with **Ctrl+C**.
+To change the model, video, camera, or backend, edit the constants in `AI/datasets/parking_agent.py`; inference currently uses `conf=0.25`, `iou=0.7`, and `IMGSZ=[1088, 1920]`.
+For a different camera view, run `python slot_specification.py` from `AI/datasets/`, select parking polygons on a matching frame, save `bounding_boxes.json`, then run `python sort_slots.py`.
+Inspect `sorted_preview.png`; keep the generated ROI/config JSON files together and aligned with the original video dimensions.
+For standalone processing without FE/BE, run `python AI/datasets/main.py` from the root; it writes `parking_result.mp4`. Press **Q** to stop early.
+If detection is slow, check CUDA and reduce inference resolution; if occupancy is wrong, check ROI alignment; if updates fail, check backend connectivity and agent logs.
