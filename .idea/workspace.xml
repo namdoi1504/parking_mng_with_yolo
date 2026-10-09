@@ -5,8 +5,16 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c28d90bd-1bf3-4137-996c-23addb512527" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/AI/datasets/parking_agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/parking_agent.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backend/app/routers/users.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/routers/users.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/AI/STREAMING.md" beforeDir="false" afterPath="$PROJECT_DIR$/AI/STREAMING.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/AI/datasets/live_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/datasets/live_pipeline.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/AI/tests/test_live_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/AI/tests/test_live_pipeline.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/backend/.env.example" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/routers/parking.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/routers/parking.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/websocket_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/websocket_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/tests/conftest.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/tests/conftest.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/tests/test_ai.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/tests/test_ai.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
