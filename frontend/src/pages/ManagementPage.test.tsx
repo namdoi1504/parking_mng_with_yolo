@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { ManagementPage } from "./ManagementPage";
 import { apiFetch, getClaims } from "../api";
-import { demoRoles, demoUsers } from "../demo";
+import { demoCameras, demoRoles, demoUsers } from "../demo";
 vi.mock("../api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false, clearTokens: vi.fn() }));
 beforeEach(() => {
   vi.mocked(getClaims).mockReturnValue({ sub: "test", user_id: 99, role: "Admin", exp: 9999999999,
@@ -14,6 +14,44 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const mount = () => render(<MemoryRouter initialEntries={["/management"]}><ManagementPage /></MemoryRouter>);
 describe("management forms against mocked API only", () => {
+  it("does not revoke sessions when only profile fields are saved", async () => {
+    mount(); await screen.findByText("Nguyễn Văn Admin");
+    fireEvent.click(screen.getByRole("button", { name: "Sửa tài khoản user1" }));
+    fireEvent.change(screen.getByLabelText("Họ và tên"), { target: { value: "Tên mới" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu thay đổi" }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith("/users/1", expect.objectContaining({ method: "PUT" })));
+    const call = vi.mocked(apiFetch).mock.calls.find(([path, init]) => path === "/users/1" && init?.method === "PUT")!;
+    expect(JSON.parse(call[1]!.body as string)).toEqual({ username: "user1", full_name: "Tên mới" });
+  });
+  it("locks a user with the status endpoint", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    mount(); await screen.findByText("Nguyễn Văn Admin");
+    fireEvent.click(screen.getByRole("button", { name: "Đổi trạng thái tài khoản user1" }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith("/users/1/status", { method: "PATCH", body: JSON.stringify({ status: "INACTIVE" }) }));
+    vi.restoreAllMocks();
+  });
+  it("preserves a camera when backend refuses deletion", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+      if (init?.method === "DELETE") throw new Error("Camera has parking slots or statistics");
+      return path === "/roles/" ? demoRoles : { data: path.startsWith("/users") ? demoUsers : demoCameras, meta: { total: 1, total_pages: 1 } } as never;
+    });
+    mount(); await screen.findByText("Nguyễn Văn Admin");
+    fireEvent.click(screen.getByRole("button", { name: /^Camera$/ }));
+    const remove = await screen.findByRole("button", { name: `Xóa camera ${demoCameras[0].name}` });
+    await waitFor(() => expect((remove as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(remove);
+    expect(await screen.findByText("Camera has parking slots or statistics")).toBeTruthy();
+    expect(screen.getByText(demoCameras[0].name)).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+  it("does not delete when confirmation is cancelled", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    mount(); await screen.findByText("Nguyễn Văn Admin");
+    fireEvent.click(screen.getByRole("button", { name: "Xóa tài khoản user1" }));
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    vi.restoreAllMocks();
+  });
   it("creates camera configuration without claiming to start AI", async () => {
     mount(); await screen.findByText("Nguyễn Văn Admin");
     fireEvent.click(screen.getByRole("button", { name: /^Camera$/ }));

@@ -79,17 +79,18 @@ export const CameraStream = memo(function CameraStream({ cameraId }: { cameraId:
     return () => window.clearTimeout(timer);
   }, [imageError, active]);
   const live = active && hasFrame && !imageError;
-  const synced = status?.sync_ok && status.sync_at != null && Date.now() / 1000 - status.sync_at < 30;
+  const currentCounts = live && !status?.analysis_stale;
+  const synced = currentCounts && status?.sync_ok && status.sync_at != null && Date.now() / 1000 - status.sync_at < 30;
   const label = live ? status?.analysis_stale ? "Video đang chạy · kết quả AI chưa cập nhật" : "Đang nhận hình AI" : offline || imageError ? "Luồng hình mất kết nối" : status && !matches ? "Camera này chưa có luồng hình" : "Đang chờ khung hình AI";
   return <section className="panel ai-video-panel" aria-label="Video đã xử lý AI">
     <div className="panel-title"><span><Camera size={19} />Video nhận diện · {status && matches ? `Camera #${status.camera_id}` : "AI"}</span><ConnectionBadge state={live && !status?.analysis_stale ? "connected" : offline || imageError ? "disconnected" : "connecting"} label={label} /></div>
     <div className={`ai-video-stage ${!live ? "stale" : ""}`}>
       {canStream && <img ref={image} style={{ display: hasFrame && !imageError ? undefined : "none" }} alt="Khung hình video sau khi YOLO nhận diện xe và tô màu trạng thái các ô đỗ" onError={() => setImageError(true)} />}
-      {(!canStream || !hasFrame || imageError) && <EmptyState title={label} text="Chạy parking_agent.py với --stream --no-window để phát hình đã xử lý." />}
+      {(!canStream || !hasFrame || imageError) && <EmptyState title={label} text="Chưa nhận được hình từ camera. Thử nối lại hoặc kiểm tra nguồn hình." />}
       {!live && hasFrame && matches && !offline && !imageError && <span className="video-stale-label">Khung hình cũ · chưa nhận được cập nhật mới</span>}
     </div>
     <div className="video-meta"><span>Nguồn: {matches ? status?.source_name : "—"} · video mẫu lặp lại</span><span>{live ? `${status?.video_fps != null ? `${status.video_fps} FPS video · ` : ""}${status?.fps} FPS AI · ${status?.analysis_age_ms != null ? `${Math.round(status.analysis_age_ms)} ms tuổi kết quả · ` : ""}${status?.media_seconds.toFixed(1)}s trong video` : "Không phát video giả khi AI ngừng hoạt động"}</span><button className="secondary-button" onClick={() => { setAttempt((old) => old + 1); setImageError(false); }}><RefreshCw size={14} />Nối lại hình</button></div>
-    {matches && status?.ready && <div className="video-counts"><span><i className="video-dot empty" />Trống trên hình: <b>{status.analysis_stale ? "—" : status.empty}</b></span><span><i className="video-dot occupied" />Đã đỗ trên hình: <b>{status.analysis_stale ? "—" : status.occupied}</b></span><span className={synced ? "text-EMPTY" : "video-sync-warning"}>{synced ? "Đã gửi trạng thái về hệ thống" : "Chưa xác nhận đồng bộ trạng thái"}</span></div>}
-    <p className="supporting-text">Video chạy độc lập; lớp phủ dùng kết quả AI gần nhất và có độ trễ theo tuổi kết quả hiển thị. Khi AI quá 2 giây không cập nhật, màu trạng thái được chuyển sang chưa xác định. Danh sách ô phía dưới cập nhật qua backend theo chu kỳ gửi 3 giây và độ trễ mạng.</p>
+    {matches && status?.ready && <div className="video-counts"><span><i className="video-dot empty" />Trống trên hình: <b>{currentCounts ? status.empty : "—"}</b></span><span><i className="video-dot occupied" />Đã đỗ trên hình: <b>{currentCounts ? status.occupied : "—"}</b></span><span className={synced ? "text-EMPTY" : "video-sync-warning"}>{synced ? "Đã gửi trạng thái về hệ thống" : "Chưa xác nhận đồng bộ trạng thái"}</span></div>}
+    <details className="video-details"><summary>Thông tin luồng và đồng bộ</summary><p className="supporting-text">Video dùng kết quả AI gần nhất. Khi AI quá 2 giây không cập nhật, màu trạng thái chuyển sang chưa xác định. Danh sách ô cập nhật qua backend theo chu kỳ gửi 3 giây và độ trễ mạng. Nếu mất hình, quản trị viên kiểm tra nguồn camera và tiến trình parking_agent.py với --stream --no-window.</p></details>
   </section>;
 });

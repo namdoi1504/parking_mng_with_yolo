@@ -12,6 +12,7 @@ export default defineConfig({
       "/roles": "http://127.0.0.1:8000",
       "/permissions": "http://127.0.0.1:8000",
       "/cameras": "http://127.0.0.1:8000",
+      "/parking-slots": "http://127.0.0.1:8000",
       "/api": "http://127.0.0.1:8000",
       "/ws": { target: "ws://127.0.0.1:8000", ws: true }
     }

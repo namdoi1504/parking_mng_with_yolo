@@ -56,11 +56,15 @@ describe("processed camera video", () => {
     await screen.findByRole("img");
     expect(screen.getByRole("status").className).not.toContain("connection-connected");
     expect(screen.getByText("Khung hình cũ · chưa nhận được cập nhật mới")).toBeTruthy();
+    expect(screen.queryByText("282")).toBeNull();
+    expect(screen.queryByText("Đã gửi trạng thái về hệ thống")).toBeNull();
   });
   it("reports the image transport failing independently of health polling", async () => {
     mockStatus(); render(<CameraStream cameraId={1} />);
     fireEvent.error(await screen.findByRole("img"));
     expect(screen.getByRole("status").textContent).toBe("Luồng hình mất kết nối");
+    expect(screen.queryByText("282")).toBeNull();
+    expect(screen.queryByText("Đã gửi trạng thái về hệ thống")).toBeNull();
   });
   it("reports an unavailable AI service", async () => {
     vi.mocked(apiFetch).mockRejectedValue(new Error("Offline"));

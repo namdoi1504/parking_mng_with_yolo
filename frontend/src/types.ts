@@ -36,4 +36,5 @@ export interface Role { id: number; name: string; description?: string; created_
 export interface User { id: number; role_id: number; username: string; full_name: string; status: "ACTIVE" | "INACTIVE"; created_at: string }
 export interface Page<T> { data: T[]; meta: { page: number; page_size: number; total: number; total_pages: number } }
 export interface HourlyStat { hour: number; occupied: number; available: number; utilization: number | null; samples: number }
+export interface DailyStat { date: string; avg_utilization: number | null; samples: number }
 export interface AuthClaims { sub: string; user_id: number; role: string; permissions: string[]; exp: number }

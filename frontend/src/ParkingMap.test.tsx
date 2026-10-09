@@ -5,8 +5,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ParkingMap, mapGeometry } from "./ParkingMap";
 import { demoMap } from "./demo";
 import type { ParkingSlot } from "./types";
+import * as routing from "./routing";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("parking map", () => {
   it("selects a slot using mouse and keyboard", () => {
     const select = vi.fn(); render(<ParkingMap slots={demoMap.slots} onSelect={select} />);
@@ -46,8 +47,17 @@ describe("parking map", () => {
     const geometry = mapGeometry(slots);
     expect(geometry?.valid).toHaveLength(470);
     expect(geometry?.viewBox).not.toMatch(/NaN|Infinity/);
+    const routeCalculation = vi.spyOn(routing, "slotRoute");
     const { rerender } = render(<ParkingMap slots={slots} selectedId={470} onSelect={() => {}} />);
     expect(document.querySelector(".map-route-line")).not.toBeNull();
+    const initialRoute = document.querySelector(".map-route-line")?.getAttribute("points");
+    const initialCalculations = routeCalculation.mock.calls.length;
+    // Polling replaces every object; another bay's state must not recalculate this route.
+    const snapshot = slots.map((slot) => ({ ...slot, updated_at: "2026-10-08T12:00:00Z", status: slot.id === 1 ? "OCCUPIED" as const : slot.status,
+      roi_coordinates: slot.roi_coordinates.map((point) => ({ ...point })) }));
+    rerender(<ParkingMap slots={snapshot} selectedId={470} onSelect={() => {}} />);
+    expect(document.querySelector(".map-route-line")?.getAttribute("points")).toBe(initialRoute);
+    expect(routeCalculation).toHaveBeenCalledTimes(initialCalculations);
     fireEvent.click(screen.getByRole("checkbox", { name: /Đối chiếu ảnh gốc/ }));
     expect(document.querySelector("svg image")?.getAttribute("href")).toBe("/parking-site-reference.jpg");
     const changed = slots.map((s) => s.id === 470 ? { ...s, status: "OCCUPIED" as const } : s);
