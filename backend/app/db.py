@@ -8,7 +8,7 @@ from .config import settings
 password = quote_plus(settings.DATABASE_PASSWORD)
 
 SQLALCHEMY_DATABASE_URL = (
-    f"postgresql://"
+    f"postgresql+psycopg2://"
     f"{quote_plus(settings.DATABASE_USERNAME)}:"
     f"{password}@"
     f"{settings.DATABASE_HOSTNAME}:"

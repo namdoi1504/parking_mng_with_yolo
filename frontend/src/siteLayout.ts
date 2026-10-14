@@ -58,6 +58,14 @@ export const SITE = {
 
 export const asPoints = (polygon: number[][]): Point[] => polygon.map(([x, y]) => ({ x, y }));
 
+// Proposed access beyond the cropped left image edge, NOT surveyed geometry.
+// Preserve every camera ROI; this extension belongs only to the schematic map.
+export const LEFT_ACCESS_PROPOSAL = {
+  originX: -120,
+  pavement: [[-120, 365], ...SITE.pavement.slice(1, -1), [-120, 1080]],
+  roadLines: [[[-65, 385], [145, 385]], [[-65, 385], [-65, 953]], [[-65, 953], [20, 953]]],
+};
+
 export function calibrated(slots: ParkingSlot[]): boolean {
   const anchors = [["001", 30.8, 547.5], ["171", 959.5, 249], ["289", 1325.5, 330.5], ["470", 1851.2, 1043.5]] as const;
   return slots.length >= 400 && slots.every((s) => s.camera_id === 1) && anchors.every(([code, x, y]) => {

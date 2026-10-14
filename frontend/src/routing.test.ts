@@ -48,4 +48,23 @@ describe("temporary site routing", () => {
   it("does not fabricate access outside the image for the cropped leftmost bays", () => {
     expect(slotRoute(network, slots[0], "entry")).toBeNull();
   });
+  it("connects the proposed outer aisle to every leftmost bay without crossing any other bay or garden", () => {
+    const proposal = buildRoadNetwork(slots, true);
+    for (const slot of slots.filter(item => item.col === 0)) for (const direction of ["entry", "exit"] as const) {
+      const route = slotRoute(proposal, slot, direction);
+      expect(route, `${slot.slot_code} ${direction}`).not.toBeNull();
+      const approach = route![direction === "entry" ? route!.length - 1 : 0];
+      expect(approach.x).toBeLessThan(0);
+      for (let i = 1; i < route!.length; i++) {
+        const a = route![i - 1], b = route![i], count = Math.ceil(Math.hypot(a.x-b.x, a.y-b.y)/4);
+        for (let j = 0; j <= count; j++) {
+          const point = { x: a.x+(b.x-a.x)*j/count, y: a.y+(b.y-a.y)*j/count };
+          expect(onRoad(point, true)).toBe(true);
+          expect(proposal.obstacles.some(obstacle => inside(point, obstacle.points))).toBe(false);
+        }
+      }
+    }
+    expect(onRoad({ x: -65, y: 550 })).toBe(false);
+    expect(onRoad({ x: -65, y: 550 }, true)).toBe(true);
+  });
 });

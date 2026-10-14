@@ -1,4 +1,4 @@
-import { SITE, asPoints, centroid } from "./siteLayout";
+import { SITE, LEFT_ACCESS_PROPOSAL, asPoints, centroid } from "./siteLayout";
 import type { ParkingSlot, Point } from "./types";
 
 export function inside(point: Point, polygon: Point[]): boolean {
@@ -30,8 +30,9 @@ export function allowedDirection(from: Point, to: Point): boolean {
   return true;
 }
 
-export function onRoad(point: Point): boolean {
-  return SITE.roadLines.some((line) => line.slice(1).some((b, i) => {
+export function onRoad(point: Point, proposedAccess = false): boolean {
+  const lines = proposedAccess ? [...SITE.roadLines, ...LEFT_ACCESS_PROPOSAL.roadLines] : SITE.roadLines;
+  return lines.some((line) => line.slice(1).some((b, i) => {
     const a = line[i], dx = b[0] - a[0], dy = b[1] - a[1];
     const t = Math.max(0, Math.min(1, ((point.x - a[0]) * dx + (point.y - a[1]) * dy) / (dx * dx + dy * dy)));
     return Math.hypot(point.x - a[0] - t * dx, point.y - a[1] - t * dy) <= SITE.corridorRadius;
@@ -39,43 +40,46 @@ export function onRoad(point: Point): boolean {
 }
 
 export interface RoadNetwork {
+  originX: number;
   columns: number; rows: number; free: Uint8Array;
   entryParents: Int32Array; exitParents: Int32Array;
   entryIndex: number; exitIndex: number;
   obstacles: { id?: number; points: Point[] }[];
 }
 
-export function gridPoint(index: number, columns: number): Point {
-  return { x: (index % columns + .5) * SITE.step, y: (Math.floor(index / columns) + .5) * SITE.step };
+export function gridPoint(index: number, columns: number, originX = 0): Point {
+  return { x: originX + (index % columns + .5) * SITE.step, y: (Math.floor(index / columns) + .5) * SITE.step };
 }
 
-export function buildRoadNetwork(slots: ParkingSlot[]): RoadNetwork {
-  const columns = Math.floor(SITE.width / SITE.step), rows = Math.floor(SITE.height / SITE.step);
-  const free = new Uint8Array(columns * rows), pavement = asPoints(SITE.pavement);
+export function buildRoadNetwork(slots: ParkingSlot[], proposedAccess = false): RoadNetwork {
+  const originX = proposedAccess ? LEFT_ACCESS_PROPOSAL.originX : 0;
+  const columns = Math.floor((SITE.width - originX) / SITE.step), rows = Math.floor(SITE.height / SITE.step);
+  const pointAt = (index: number) => gridPoint(index, columns, originX);
+  const free = new Uint8Array(columns * rows), pavement = asPoints(proposedAccess ? LEFT_ACCESS_PROPOSAL.pavement : SITE.pavement);
   for (let i = 0; i < free.length; i++) {
-    const point = gridPoint(i, columns);
-    free[i] = Number(inside(point, pavement) && onRoad(point));
+    const point = pointAt(i);
+    free[i] = Number(inside(point, pavement) && onRoad(point, proposedAccess));
   }
   // Block every parking polygon regardless of its current status. Empty bays
   // are not shortcuts. Margin includes half a cell's diagonal for segment safety.
   const margin = SITE.clearance + SITE.step * Math.SQRT2 / 2;
   const obstacles = [...slots.filter((s) => s.roi_coordinates.length >= 3).map((s) => s.roi_coordinates), ...SITE.gardens.map(asPoints)];
   for (const polygon of obstacles) {
-    const minCol = Math.max(0, Math.floor((Math.min(...polygon.map((p) => p.x)) - margin) / SITE.step));
-    const maxCol = Math.min(columns - 1, Math.ceil((Math.max(...polygon.map((p) => p.x)) + margin) / SITE.step));
+    const minCol = Math.max(0, Math.floor((Math.min(...polygon.map((p) => p.x)) - margin - originX) / SITE.step));
+    const maxCol = Math.min(columns - 1, Math.ceil((Math.max(...polygon.map((p) => p.x)) + margin - originX) / SITE.step));
     const minRow = Math.max(0, Math.floor((Math.min(...polygon.map((p) => p.y)) - margin) / SITE.step));
     const maxRow = Math.min(rows - 1, Math.ceil((Math.max(...polygon.map((p) => p.y)) + margin) / SITE.step));
     for (let row = minRow; row <= maxRow; row++) for (let col = minCol; col <= maxCol; col++) {
       const index = row * columns + col;
       if (!free[index]) continue;
-      const point = gridPoint(index, columns), edge = boundaryPoint(point, polygon);
+      const point = pointAt(index), edge = boundaryPoint(point, polygon);
       if (inside(point, polygon) || Math.hypot(point.x - edge.x, point.y - edge.y) <= margin) free[index] = 0;
     }
   }
   function nearest(point: Point) {
     let best = -1, distance = Infinity;
     for (let i = 0; i < free.length; i++) if (free[i]) {
-      const p = gridPoint(i, columns), d = (p.x - point.x) ** 2 + (p.y - point.y) ** 2;
+      const p = pointAt(i), d = (p.x - point.x) ** 2 + (p.y - point.y) ** 2;
       if (d < distance) { best = i; distance = d; }
     }
     return best;
@@ -91,7 +95,7 @@ export function buildRoadNetwork(slots: ParkingSlot[]): RoadNetwork {
         if (x < 0 || x >= columns || y < 0 || y >= rows) continue;
         const next = y * columns + x;
         if (!free[next] || parents[next] !== -1) continue;
-        const a = gridPoint(index, columns), b = gridPoint(next, columns);
+        const a = pointAt(index), b = pointAt(next);
         if (!(reverse ? allowedDirection(b, a) : allowedDirection(a, b))) continue;
         parents[next] = index; queue[tail++] = next;
       }
@@ -99,7 +103,7 @@ export function buildRoadNetwork(slots: ParkingSlot[]): RoadNetwork {
     return parents;
   }
   const entryIndex = nearest(SITE.entry), exitIndex = nearest(SITE.exit);
-  return { columns, rows, free, entryIndex, exitIndex,
+  return { originX, columns, rows, free, entryIndex, exitIndex,
     obstacles: [...slots.map((s) => ({ id: s.id, points: s.roi_coordinates })), ...SITE.gardens.map((g) => ({ points: asPoints(g) }))],
     entryParents: flood(entryIndex, false), exitParents: flood(exitIndex, true) };
 }
@@ -110,7 +114,7 @@ export function slotRoute(network: RoadNetwork, slot: ParkingSlot, direction: "e
   const center = centroid(slot.roi_coordinates), parents = direction === "entry" ? network.entryParents : network.exitParents;
   let nearest = -1, best = Infinity;
   for (let i = 0; i < parents.length; i++) if (parents[i] >= 0) {
-    const p = gridPoint(i, network.columns), distance = (p.x - center.x) ** 2 + (p.y - center.y) ** 2;
+    const p = gridPoint(i, network.columns, network.originX), distance = (p.x - center.x) ** 2 + (p.y - center.y) ** 2;
     if (distance < best && distance <= 100 ** 2) {
       const edge = boundaryPoint(p, slot.roi_coordinates);
       // Only attach to the drive-facing end of the bay, not its narrow side.
@@ -134,7 +138,7 @@ export function slotRoute(network: RoadNetwork, slot: ParkingSlot, direction: "e
   const route: Point[] = [];
   let index = nearest;
   while (true) {
-    route.push(gridPoint(index, network.columns));
+    route.push(gridPoint(index, network.columns, network.originX));
     if (parents[index] === index) break;
     index = parents[index];
   }

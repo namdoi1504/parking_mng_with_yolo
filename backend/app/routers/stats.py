@@ -13,35 +13,40 @@ router = APIRouter(prefix="/api/stats", tags=["Statistics"], dependencies=[Depen
 
 
 @router.get("/hourly")
-def hourly(date: Date, camera_id: int | None = Query(None, gt=0), db: Session = Depends(get_db)):
+def hourly(date: Date, camera_id: int | None = Query(None, gt=0),
+           utc_offset_minutes: int = Query(0, ge=-840, le=840), db: Session = Depends(get_db)):
     if camera_id is not None:
         get_or_404(db, models.Camera, camera_id)
-    start = datetime.combine(date, time(), tzinfo=timezone.utc)
+    report_zone = timezone(timedelta(minutes=utc_offset_minutes))
+    start = datetime.combine(date, time(), tzinfo=report_zone).astimezone(timezone.utc)
     periods = report_samples(db, start, start + timedelta(days=1), camera_id)
     hours = defaultdict(list)
     for stamp, sample in periods.items():
-        hours[stamp.hour].append(sample)
+        hours[stamp.astimezone(report_zone).hour].append(sample)
     return [{"hour": hour, **summarize(hours[hour])} for hour in range(24)]
 
 
 @router.get("/daily")
 def daily(from_date: Date = Query(alias="from"), to_date: Date = Query(alias="to"),
-          camera_id: int | None = Query(None, gt=0), db: Session = Depends(get_db)):
+          camera_id: int | None = Query(None, gt=0), utc_offset_minutes: int = Query(0, ge=-840, le=840),
+          db: Session = Depends(get_db)):
     days = (to_date - from_date).days
     if days < 0 or days > 365:
         raise HTTPException(422, "Date range must be ordered and at most 366 days")
     if camera_id is not None:
         get_or_404(db, models.Camera, camera_id)
-    start = datetime.combine(from_date, time(), tzinfo=timezone.utc)
+    report_zone = timezone(timedelta(minutes=utc_offset_minutes))
+    start = datetime.combine(from_date, time(), tzinfo=report_zone).astimezone(timezone.utc)
     periods = report_samples(db, start, start + timedelta(days=days+1), camera_id)
     grouped = defaultdict(list)
     for stamp, sample in periods.items():
-        grouped[stamp.date()].append(sample)
+        grouped[stamp.astimezone(report_zone).date()].append(sample)
     result = []
     for offset in range(days+1):
         day = from_date + timedelta(days=offset)
         stats = summarize(grouped[day])
-        result.append({"date": day, "avg_utilization": stats["utilization"], "samples": stats["samples"]})
+        result.append({"date": day, "avg_utilization": stats["utilization"], "samples": stats["samples"],
+                       "last_sample_at": stats["last_sample_at"]})
     return result
 
 

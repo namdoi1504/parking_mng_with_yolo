@@ -17,6 +17,7 @@ def aggregate_stats(period_minutes=15, *, now=None, session_factory=SessionLocal
     now = utc(now or datetime.now(timezone.utc))
     end = now.replace(minute=(now.minute // period_minutes) * period_minutes, second=0, microsecond=0)
     start = end - timedelta(minutes=period_minutes)
+    snapshots = []
     with session_factory() as db:
         # A consistent event/slot snapshot even while the AI commits updates.
         if db.bind.dialect.name == "postgresql":
@@ -33,17 +34,23 @@ def aggregate_stats(period_minutes=15, *, now=None, session_factory=SessionLocal
         for slot in slots:
             item = counts[slot.camera_id]
             item["total"] += 1
-            item["occupied"] += states[slot.id] == "OCCUPIED"
+            item["occupied"] += states[slot.id] in ("OCCUPIED", "UNKNOWN")
             item["available"] += states[slot.id] == "EMPTY"
         for camera_id, item in counts.items():
             values = dict(camera_id=camera_id, period_start=start, period_end=end,
                           occupied_count=item["occupied"], available_count=item["available"],
                           total_count=item["total"], utilization_rate=100 * item["occupied"] / item["total"])
-            insert = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
+            snapshots.append(values)
+    # End the consistent read before writing. The AI continuously updates the
+    # parent camera row; a FK check inside REPEATABLE READ can otherwise fail
+    # with PostgreSQL SerializationFailure after that concurrent update.
+    with session_factory() as db:
+        insert = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
+        for values in snapshots:
             db.execute(insert(models.ParkingStatistic).values(**values).on_conflict_do_nothing(
                 index_elements=["camera_id", "period_start", "period_end"]))
         db.commit()
-        return len(counts)
+    return len(snapshots)
 
 
 def report_samples(db, start, end, camera_id=None):
@@ -54,19 +61,21 @@ def report_samples(db, start, end, camera_id=None):
     )
     if camera_id is not None:
         query = query.filter_by(camera_id=camera_id)
-    periods = defaultdict(lambda: [0, 0, 0])
+    periods = defaultdict(lambda: [0, 0, 0, None])
     for row in query.all():
         bucket = periods[utc(row.period_start)]
         bucket[0] += row.occupied_count
         bucket[1] += row.available_count
         bucket[2] += row.total_count
+        stamp = utc(row.period_end)
+        bucket[3] = max(bucket[3], stamp) if bucket[3] else stamp
     return periods
 
 
 def summarize(samples):
     if not samples:
-        return {"occupied": None, "available": None, "utilization": None, "samples": 0}
+        return {"occupied": None, "available": None, "utilization": None, "samples": 0, "last_sample_at": None}
     return {"occupied": round(sum(s[0] for s in samples)/len(samples), 2),
             "available": round(sum(s[1] for s in samples)/len(samples), 2),
             "utilization": round(sum(100*s[0]/s[2] if s[2] else 0 for s in samples)/len(samples), 2),
-            "samples": len(samples)}
+            "samples": len(samples), "last_sample_at": max(s[3] for s in samples).isoformat()}

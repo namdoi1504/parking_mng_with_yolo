@@ -27,8 +27,8 @@ def test_aggregate_persistent_states_boundary_and_idempotency(database):
     aggregate_stats(now=NOW, session_factory=database)
     with database() as db:
         row = db.query(models.ParkingStatistic).one()
-        assert (row.occupied_count, row.available_count, row.total_count) == (2, 0, 4)
-        assert row.utilization_rate == 50
+        assert (row.occupied_count, row.available_count, row.total_count) == (3, 0, 4)
+        assert row.utilization_rate == 75
         assert row.period_start.minute == 15 and row.period_end.minute == 30
 
 
@@ -43,7 +43,7 @@ def test_hourly_daily_camera_weighting_and_missing_data(client, database, header
         db.commit()
     result = client.get("/api/stats/hourly?date=2026-09-29", headers=headers)
     assert result.status_code == 200 and len(result.json()) == 24
-    assert result.json()[10] == {"hour": 10, "occupied": 1, "available": 9, "utilization": 10, "samples": 1}
+    assert result.json()[10] == {"hour": 10, "occupied": 1, "available": 9, "utilization": 10, "samples": 1, "last_sample_at": "2026-09-29T10:15:00+00:00"}
     assert result.json()[0]["utilization"] is None
     filtered = client.get("/api/stats/hourly?date=2026-09-29&camera_id=1", headers=headers).json()
     assert filtered[10]["utilization"] == 50
@@ -67,3 +67,27 @@ def test_scheduler_lifecycle(client, monkeypatch):
 def test_invalid_aggregation_period():
     with pytest.raises(ValueError):
         aggregate_stats(period_minutes=17)
+
+
+def test_local_hourly_daily_boundaries_and_latest_sample(client, database, headers):
+    with database() as db:
+        db.add(models.Camera(id=1, name="Timezone camera", source_url="file://test"))
+        db.flush()
+        for stamp, occupied in [
+            (datetime(2026, 9, 28, 16, 45, tzinfo=timezone.utc), 4),
+            (datetime(2026, 9, 28, 17, 0, tzinfo=timezone.utc), 2),
+            (datetime(2026, 9, 29, 11, 0, tzinfo=timezone.utc), 3),
+            (datetime(2026, 9, 29, 17, 0, tzinfo=timezone.utc), 1),
+        ]:
+            db.add(models.ParkingStatistic(camera_id=1, period_start=stamp,
+                period_end=stamp + timedelta(minutes=15), occupied_count=occupied,
+                available_count=4-occupied, total_count=4, utilization_rate=occupied*25))
+        db.commit()
+    rows = client.get("/api/stats/hourly?date=2026-09-29&utc_offset_minutes=420", headers=headers).json()
+    assert rows[0]["utilization"] == 50 and rows[18]["utilization"] == 75
+    assert sum(row["samples"] for row in rows) == 2
+    assert rows[18]["last_sample_at"] == "2026-09-29T11:15:00+00:00"
+    daily = client.get("/api/stats/daily?from=2026-09-29&to=2026-09-30&utc_offset_minutes=420", headers=headers).json()
+    assert daily[0]["avg_utilization"] == 62.5 and daily[1]["avg_utilization"] == 25
+    assert client.get("/api/stats/hourly?date=2026-09-29&utc_offset_minutes=841", headers=headers).status_code == 422
+    assert client.get("/api/stats/daily?from=2026-09-29&to=2026-09-29&utc_offset_minutes=-841", headers=headers).status_code == 422

@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      "/scenario-lab": "http://127.0.0.1:8002",
       "/ai-stream": "http://127.0.0.1:8000",
       "/auth": "http://127.0.0.1:8000",
       "/users": "http://127.0.0.1:8000",
@@ -13,6 +14,7 @@ export default defineConfig({
       "/permissions": "http://127.0.0.1:8000",
       "/cameras": "http://127.0.0.1:8000",
       "/parking-slots": "http://127.0.0.1:8000",
+      "/parking-sessions": "http://127.0.0.1:8000",
       "/api": "http://127.0.0.1:8000",
       "/ws": { target: "ws://127.0.0.1:8000", ws: true }
     }

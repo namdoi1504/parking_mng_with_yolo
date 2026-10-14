@@ -8,13 +8,13 @@ import { PARKING_POLL_MS, useParkingMap } from "./useParkingMap";
 vi.mock("./api", () => ({ apiFetch: vi.fn(), getAccessToken: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false }));
 class TestSocket {
   static sockets: TestSocket[] = [];
-  onopen?: () => void; onclose?: () => void; onmessage?: (event: { data: string }) => void;
-  constructor() { TestSocket.sockets.push(this); }
-  close() { this.onclose?.(); }
+  onopen?: () => void; onclose?: (event: { code: number }) => void; onmessage?: (event: { data: string }) => void;
+  constructor(public url: string, public protocols: string[]) { TestSocket.sockets.push(this); }
+  close() { this.onclose?.({ code: 1000 }); }
 }
 function Probe() {
-  const { data, connection, error, events } = useParkingMap();
-  return <><span>{connection}</span><span>{data ? `${data.summary.total_slots} slots, ${data.summary.empty_slots} empty` : "No data"}</span><p>{error}</p><span>{events.length} observed changes</span></>;
+  const { data, connection, error, events, sessionRevision } = useParkingMap();
+  return <><span>{connection}</span><span>{data ? `${data.summary.total_slots} slots, ${data.summary.empty_slots} empty` : "No data"}</span><p>{error}</p><span>{events.length} observed changes</span><span>Session revision {sessionRevision}</span></>;
 }
 beforeEach(() => {
   TestSocket.sockets = []; vi.stubGlobal("WebSocket", TestSocket);
@@ -23,6 +23,30 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 describe("shared parking data", () => {
+  it("keeps refresh controls stable during automatic snapshots and indicates manual requests", async () => {
+    vi.useFakeTimers();
+    function RefreshProbe() {
+      const { busy, load } = useParkingMap();
+      return <button disabled={busy} onClick={() => void load()}>Làm mới</button>;
+    }
+    render(<RefreshProbe />); await act(async () => {});
+    const button = screen.getByRole("button", { name: "Làm mới" }) as HTMLButtonElement;
+    let resolve!: (value: typeof demoMap) => void;
+    vi.mocked(apiFetch).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(PARKING_POLL_MS); });
+    expect(button.disabled).toBe(false);
+    await act(async () => { resolve(demoMap); });
+    vi.mocked(apiFetch).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    fireEvent.click(button);
+    expect(button.disabled).toBe(true);
+    await act(async () => { resolve(demoMap); });
+    expect(button.disabled).toBe(false);
+  });
+  it("preserves the backend availability summary rather than counting all empty slots as available", async () => {
+    function AvailabilityProbe() { const { data } = useParkingMap(); return <span>{data?.summary.available_slots} usable slots</span>; }
+    vi.mocked(apiFetch).mockResolvedValue({ ...demoMap, summary: { ...demoMap.summary, available_slots: 2 } });
+    render(<AvailabilityProbe />); expect(await screen.findByText("2 usable slots")).toBeTruthy();
+  });
   it("does not overwrite a successful reservation with an older in-flight snapshot", async () => {
     vi.useFakeTimers();
     function MutationProbe() {
@@ -47,13 +71,47 @@ describe("shared parking data", () => {
     expect(await screen.findByText("40 slots, 10 empty")).toBeTruthy();
     expect(screen.queryByText(/Không nhận được dữ liệu/)).toBeNull();
   });
-  it("uses polling instead of opening a socket even for an authenticated operator", async () => {
+  it("authenticates the socket without a URL token and refreshes snapshot and session details", async () => {
+    vi.useFakeTimers();
     vi.mocked(getAccessToken).mockReturnValue("test-only-token");
     vi.mocked(getClaims).mockReturnValue({ sub: "test", role: "Operator", user_id: 1, exp: 9999999999, permissions: ["parking:view"] });
-    render(<Probe />); await screen.findByText("40 slots, 10 empty");
-    expect(screen.getByText("polling")).toBeTruthy();
-    expect(TestSocket.sockets).toHaveLength(0);
+    render(<Probe />); await act(async () => {});
+    const socket = TestSocket.sockets[0];
+    expect(socket.url).not.toContain("test-only-token");
+    expect(socket.protocols).toEqual(["parking", "bearer.test-only-token"]);
+    await act(async () => { socket.onopen?.(); await vi.advanceTimersByTimeAsync(250); });
+    expect(screen.getByText("connected")).toBeTruthy();
+    expect(screen.getByText("Session revision 1")).toBeTruthy();
+    await act(async () => { socket.onmessage?.({ data: JSON.stringify({ type: "PARKING_SESSION_CHANGED", session_id: 42 }) }); await vi.advanceTimersByTimeAsync(250); });
+    expect(screen.getByText("Session revision 2")).toBeTruthy();
     expect(screen.getByText("0 observed changes")).toBeTruthy();
+  });
+  it("recovers the snapshot on reconnect and stops sockets and timers on unmount", async () => {
+    vi.useFakeTimers();
+    vi.mocked(getAccessToken).mockReturnValue("test-only-token");
+    vi.mocked(getClaims).mockReturnValue({ sub: "test", role: "Operator", user_id: 1, exp: 9999999999, permissions: ["parking:view"] });
+    const { unmount } = render(<Probe />); await act(async () => {});
+    await act(async () => { TestSocket.sockets[0].onclose?.({ code: 1006 }); await vi.advanceTimersByTimeAsync(1000); });
+    expect(TestSocket.sockets).toHaveLength(2);
+    const before = vi.mocked(apiFetch).mock.calls.length;
+    await act(async () => { TestSocket.sockets[1].onopen?.(); await vi.advanceTimersByTimeAsync(250); });
+    expect(apiFetch).toHaveBeenCalledTimes(before + 1);
+    unmount(); const after = vi.mocked(apiFetch).mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(TestSocket.sockets).toHaveLength(2); expect(apiFetch).toHaveBeenCalledTimes(after);
+  });
+  it("does not open a socket for a public visitor", async () => {
+    render(<Probe />); await screen.findByText("40 slots, 10 empty");
+    expect(TestSocket.sockets).toHaveLength(0);
+  });
+  it("stops reconnecting after the backend rejects socket permissions", async () => {
+    vi.useFakeTimers();
+    vi.mocked(getAccessToken).mockReturnValue("test-only-token");
+    vi.mocked(getClaims).mockReturnValue({ sub: "test", role: "Operator", user_id: 1, exp: 9999999999, permissions: ["parking:view"] });
+    render(<Probe />); await act(async () => {});
+    await act(async () => { TestSocket.sockets[0].onclose?.({ code: 1008 }); await vi.advanceTimersByTimeAsync(60000); });
+    expect(TestSocket.sockets).toHaveLength(1);
+    expect(screen.getByText("polling")).toBeTruthy();
   });
   it("shows API failure without inventing parking data", async () => {
     vi.mocked(apiFetch).mockRejectedValue(new Error("Backend unavailable"));
@@ -64,7 +122,7 @@ describe("shared parking data", () => {
     vi.useFakeTimers();
     render(<Probe />);
     await act(async () => {});
-    const changed = { ...demoMap, slots: demoMap.slots.map((s) => s.id === 1 ? { ...s, status: "OCCUPIED" as const } : s) };
+    const changed = { ...demoMap, summary: { ...demoMap.summary, empty_slots: 9, occupied_slots: 21, available_slots: 9 }, slots: demoMap.slots.map((s) => s.id === 1 ? { ...s, status: "OCCUPIED" as const } : s) };
     vi.mocked(apiFetch).mockResolvedValue(changed);
     await act(async () => { await vi.advanceTimersByTimeAsync(PARKING_POLL_MS); });
     expect(screen.getByText("40 slots, 9 empty")).toBeTruthy();
