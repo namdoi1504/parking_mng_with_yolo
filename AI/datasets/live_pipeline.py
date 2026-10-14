@@ -1,5 +1,6 @@
 """Bounded latest-frame pipeline: video playback never waits for inference."""
 
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -20,13 +21,17 @@ class VideoFrame:
 class LatestVideo:
     """One decoder owns VideoCapture; consumers skip old frames, never queue."""
 
-    def __init__(self, source: str) -> None:
+    def __init__(self, source: str, playback_speed: float = 1.0) -> None:
+        if not math.isfinite(playback_speed) or playback_speed <= 0:
+            raise ValueError("playback_speed must be finite and positive")
+        self.playback_speed = playback_speed
         self.cap = cv2.VideoCapture(source)
         if not self.cap.isOpened():
             self.cap.release()
             raise RuntimeError(f"Cannot open video: {source}")
         self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 30
         self.total = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.playback_fps = self.fps * self.playback_speed
         self.condition = threading.Condition()
         self.stopping = threading.Event()
         self.latest: VideoFrame | None = None
@@ -55,11 +60,11 @@ class LatestVideo:
         sequence, epoch, last_tick = 0, -1, -1
         try:
             while not self.stopping.is_set():
-                tick = int((time.perf_counter() - started) * self.fps)
+                tick = int((time.perf_counter() - started) * self.playback_fps)
                 # Event.wait may wake just before the next frame deadline. Re-reading
                 # the same tick would seek backward into a compressed video GOP.
                 if tick <= last_tick:
-                    self.stopping.wait(max(.001, started + (last_tick + 1) / self.fps
+                    self.stopping.wait(max(.001, started + (last_tick + 1) / self.playback_fps
                                            - time.perf_counter()))
                     continue
                 current_epoch = tick // self.total if self.total else 0
@@ -81,7 +86,7 @@ class LatestVideo:
                 with self.condition:
                     self.latest = sample
                     self.condition.notify_all()
-                self.stopping.wait(max(0, started + (tick + 1) / self.fps - time.perf_counter()))
+                self.stopping.wait(max(0, started + (tick + 1) / self.playback_fps - time.perf_counter()))
         except Exception as error:
             with self.condition:
                 self.error = error

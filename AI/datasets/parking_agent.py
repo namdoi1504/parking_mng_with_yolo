@@ -2,6 +2,9 @@ import argparse
 import json
 import time
 import threading
+import os
+from datetime import datetime, timezone
+from uuid import uuid4
 import httpx
 import cv2
 import numpy as np
@@ -13,6 +16,7 @@ from utils import draw_slot_overlay
 from stream_server import FrameStore, create_server
 from roi_occupancy import ROIOccupancy
 from live_pipeline import LatestVideo, SlotRenderer
+from observation import ObservationStabilizer
 
 # Folder containing this script
 HERE = Path(__file__).parent
@@ -25,8 +29,14 @@ SORTED_JSON      = str(HERE / "sorted_bounding_boxes.json")
 MODEL_PATH       = str(HERE / "cars_best.pt")
 VIDEO_SOURCE     = str(HERE / "parking_car.mp4")
 SEND_INTERVAL    = 3.0
+VIDEO_PLAYBACK_SPEED = float(os.environ.get("VIDEO_PLAYBACK_SPEED", 1 / 3))
+MAX_OBSERVATION_AGE_SECONDS = float(os.environ.get("MAX_OBSERVATION_AGE_SECONDS", "10"))
+OCCUPIED_CONFIRM_SECONDS = float(os.environ.get("OCCUPIED_CONFIRM_SECONDS", "0.5"))
+EMPTY_CONFIRM_SECONDS = float(os.environ.get("EMPTY_CONFIRM_SECONDS", "1.5"))
+AGENT_RUN_ID = str(uuid4())
+SEND_SEQUENCE = 0
 SHOW_WINDOW      = True
-IMGSZ            = [1088, 1920]                    # multiple of 32
+IMGSZ            = [1088, 1920]            
 STREAM_STORE: FrameStore | None = None
 SEND_LOCK = threading.Lock()
 
@@ -59,7 +69,7 @@ def sync_slots_with_backend(config: list[dict], camera_id: int) -> bool:
             "row"             : item.get("row", 0),
         })
 
-    payload = {"camera_id": camera_id, "slots": slots_payload}
+    payload = {"camera_id": camera_id, "run_id": AGENT_RUN_ID, "slots": slots_payload}
 
     try:
         resp = httpx.post(
@@ -152,10 +162,13 @@ def detect_slot_status(
 
 
 
-def send_to_backend(slot_statuses: list[dict], camera_id: int) -> None:
+def send_to_backend(slot_statuses: list[dict], camera_id: int, observed_at: str, sequence: int) -> None:
     """Gửi HTTP POST về backend (chạy trong thread riêng để không block YOLO)."""
     payload = {
         "camera_id"    : camera_id,
+        "run_id": AGENT_RUN_ID,
+        "sequence": sequence,
+        "observed_at": observed_at,
         "parking_slots": slot_statuses,
     }
     try:
@@ -187,13 +200,16 @@ def send_to_backend(slot_statuses: list[dict], camera_id: int) -> None:
         print(f"  Error: {e}")
 
 
-def send_async(slot_statuses: list[dict], camera_id: int) -> None:
+def send_async(slot_statuses: list[dict], camera_id: int, observed_at: str) -> None:
     """Gửi trong background thread — không block vòng lặp YOLO."""
+    global SEND_SEQUENCE
     if not SEND_LOCK.acquire(blocking=False):
         return
+    SEND_SEQUENCE += 1
+    sequence = SEND_SEQUENCE
     def send_once() -> None:
         try:
-            send_to_backend(slot_statuses, camera_id)
+            send_to_backend(slot_statuses, camera_id, observed_at, sequence)
         finally:
             SEND_LOCK.release()
     t = threading.Thread(
@@ -203,7 +219,7 @@ def send_async(slot_statuses: list[dict], camera_id: int) -> None:
     t.start()
 
 
-def run_agent(show_window: bool = SHOW_WINDOW):
+def run_agent(show_window: bool = SHOW_WINDOW, playback_speed: float = VIDEO_PLAYBACK_SPEED):
     print(f"Parking Agent starting")
     print(f"   Backend : {BACKEND_URL}")
     print(f"   Camera  : {VIDEO_SOURCE}")
@@ -231,7 +247,13 @@ def run_agent(show_window: bool = SHOW_WINDOW):
     print(f" YOLO + ROI device: {device}")
 
 
-    video = LatestVideo(VIDEO_SOURCE)
+    video = LatestVideo(VIDEO_SOURCE, playback_speed=playback_speed)
+    print(f" Video playback: {playback_speed:.4f}x ({video.fps:.2f} source FPS)")
+    stabilizer = ObservationStabilizer(occupied_seconds=OCCUPIED_CONFIRM_SECONDS,
+                                     empty_seconds=EMPTY_CONFIRM_SECONDS,
+                                     max_gap_seconds=MAX_OBSERVATION_AGE_SECONDS)
+    # Convert monotonic capture times to UTC wall time; this is demo execution time.
+    wall_offset = time.time() - time.perf_counter()
     stop = threading.Event()
     analysis_lock = threading.Lock()
     analysis = {}
@@ -304,6 +326,7 @@ def run_agent(show_window: bool = SHOW_WINDOW):
             parkingmanager.boxes = result.boxes.xyxy if result.boxes is not None else None
             roi_started = time.perf_counter()
             statuses = occupancy.detect(parkingmanager.boxes)
+            confirmed_statuses = stabilizer.update(statuses, sample.captured_at, sample.epoch)
             roi_ms = (time.perf_counter() - roi_started) * 1000
             boxes = (parkingmanager.boxes.detach().cpu().numpy()
                      if parkingmanager.boxes is not None else np.empty((0, 4)))
@@ -317,10 +340,14 @@ def run_agent(show_window: bool = SHOW_WINDOW):
                                 media_seconds=round(sample.media_seconds, 2),
                                 roi_ms=round(roi_ms, 2), fps=round(ai_fps, 1),
                                 inference_ms=round((roi_started - inference_started) * 1000, 2))
-            if time.time() - last_sent >= SEND_INTERVAL:
-                if statuses:
-                    send_async(statuses, CAMERA_ID)
-                last_sent = time.time()
+            if time.perf_counter() - last_sent >= SEND_INTERVAL:
+                if not synced:
+                    synced = sync_slots_with_backend(slot_config, CAMERA_ID)
+                # Slow inference must not send old frames as fresh evidence.
+                if synced and confirmed_statuses and time.perf_counter() - sample.captured_at < MAX_OBSERVATION_AGE_SECONDS:
+                    observed_at = datetime.fromtimestamp(sample.captured_at + wall_offset, timezone.utc).isoformat()
+                    send_async(confirmed_statuses, CAMERA_ID, observed_at)
+                last_sent = time.perf_counter()
         if render_errors:
             raise RuntimeError("Preview renderer failed") from render_errors[0]
     finally:
@@ -337,6 +364,7 @@ def main() -> None:
     parser.add_argument("--stream", action="store_true")
     parser.add_argument("--no-window", action="store_true")
     parser.add_argument("--stream-port", type=int, default=8001)
+    parser.add_argument("--playback-speed", type=float, default=VIDEO_PLAYBACK_SPEED)
     args = parser.parse_args()
     server = None
     if args.stream:
@@ -345,7 +373,7 @@ def main() -> None:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         print(f"Local AI stream: http://127.0.0.1:{args.stream_port}/video")
     try:
-        run_agent(show_window=SHOW_WINDOW and not args.no_window)
+        run_agent(show_window=SHOW_WINDOW and not args.no_window, playback_speed=args.playback_speed)
     finally:
         if STREAM_STORE:
             STREAM_STORE.stop()

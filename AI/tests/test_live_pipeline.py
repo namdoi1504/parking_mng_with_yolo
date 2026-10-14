@@ -97,6 +97,27 @@ class PipelineTests(unittest.TestCase):
             video.close()
         self.assertTrue(cap.released)
 
+    def test_two_thirds_speed_changes_playback_clock_not_source_timestamps(self):
+        cap = FakeCapture()
+        with patch("AI.datasets.live_pipeline.cv2.VideoCapture", return_value=cap):
+            video = LatestVideo("fake.mp4", playback_speed=2 / 3)
+        clock = [0.0]
+        waits = []
+        class ClockStop:
+            def is_set(self):
+                return len(waits) >= 3
+            def wait(self, seconds):
+                waits.append(seconds)
+                clock[0] += seconds
+                return self.is_set()
+        video.stopping = ClockStop()
+        with patch("AI.datasets.live_pipeline.time.perf_counter", side_effect=lambda: clock[0]):
+            video._decode()
+        self.assertAlmostEqual(waits[0], .015)  # 100 source FPS / (2/3 speed)
+        self.assertAlmostEqual(video.latest.media_seconds, .02)
+        self.assertAlmostEqual(clock[0], .045)
+        self.assertTrue(cap.released)
+
     def test_scaled_overlay_preserves_status_color_and_input(self):
         image = np.zeros((120, 200, 3), np.uint8)
         renderer = SlotRenderer([{"points": [[10, 10], [100, 10], [100, 100], [10, 100]]}],
