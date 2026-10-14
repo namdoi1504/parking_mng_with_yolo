@@ -1,4 +1,5 @@
 import type { AuthClaims } from "./types";
+import { isScenarioMode } from "./scenarioMode";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const IS_NGROK_API = /^https?:\/\/[^/]+\.(?:ngrok-free\.dev|ngrok-free\.app|ngrok\.io|ngrok\.app)(?=[:/]|$)/i.test(API_BASE);
@@ -40,6 +41,7 @@ export function clearTokens() {
 export const getAccessToken = () => tokenStorage().getItem(ACCESS_KEY);
 
 export function getClaims(): AuthClaims | null {
+  if (isScenarioMode()) return { sub: "local-lab", user_id: 1, role: "Administrator", permissions: ["parking:view", "parking:manage", "report:view"], exp: 9999999999 };
   const token = getAccessToken();
   if (!token) return null;
   try {
@@ -97,6 +99,15 @@ async function waitForRefresh(pending: Promise<boolean>, signal?: AbortSignal | 
 }
 
 export async function apiResponse(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
+  if (isScenarioMode()) {
+    const headers = new Headers(init.headers);
+    headers.delete("Authorization");
+    if (init.body) headers.set("Content-Type", "application/json");
+    const response = await fetch(`/scenario-lab/api${path}`, { ...init, headers, credentials: "omit", signal: init.signal ?? AbortSignal.timeout(15000) });
+    if (!response.ok) { const body = await response.json().catch(() => null); throw new Error(typeof body?.detail === "string" ? body.detail : `Demo: yêu cầu thất bại (${response.status})`); }
+    if (init.method === "POST") window.dispatchEvent(new Event("scenario-changed"));
+    return response;
+  }
   const headers = apiHeaders(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const token = getAccessToken();
@@ -126,4 +137,4 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return response.json() as Promise<T>;
 }
 
-export function isDemoMode() { return import.meta.env.VITE_DEMO_MODE === "true"; }
+export function isDemoMode() { return !isScenarioMode() && import.meta.env.VITE_DEMO_MODE === "true"; }

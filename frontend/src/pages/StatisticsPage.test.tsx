@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { apiFetch, getClaims } from "../api";
-import { StatisticsPage } from "./StatisticsPage";
+import { reportDate, StatisticsPage } from "./StatisticsPage";
 
 vi.mock("../api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false, clearTokens: vi.fn() }));
 const mount = () => render(<MemoryRouter initialEntries={["/statistics"]}><StatisticsPage /></MemoryRouter>);
@@ -13,6 +13,22 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); vi.unstubAllGlobals(); });
 describe("hourly and daily report filters", () => {
+  it("uses the Vietnam calendar date across the UTC midnight boundary", () => {
+    expect(reportDate(new Date("2026-10-13T17:00:00Z"))).toBe("2026-10-14");
+    expect(reportDate(new Date("2026-10-13T16:59:59Z"))).toBe("2026-10-13");
+  });
+  it("requests the hourly report in UTC+7 and distinguishes missing samples from zero", async () => {
+    vi.mocked(apiFetch).mockImplementation(async path => path === "/api/ai/map" ? { slots: [{ camera_id: 7 }] } as never : [
+      { hour: 18, utilization: 0, samples: 1, occupied: 0, available: 4, last_sample_at: "2026-10-14T11:15:00Z" },
+      { hour: 19, utilization: null, samples: 0, occupied: null, available: null, last_sample_at: null }
+    ] as never);
+    mount(); await screen.findByText("18:00", { selector: "td" });
+    expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path.startsWith("/api/stats/hourly?") && path.includes("utc_offset_minutes=420"))).toBe(true);
+    const missing = screen.getByText("19:00", { selector: "td" }).parentElement!;
+    expect(missing.textContent).toContain("—");
+    expect(screen.getByText(/Mẫu gần nhất kết thúc lúc/).textContent).toContain("18:15");
+    expect(document.querySelector('.bar-column[title^="19:00"] .bar')?.getAttribute("style")).toContain("height: 0%");
+  });
   it("loads every camera page when camera:view is available, including cameras without current slots", async () => {
     vi.mocked(getClaims).mockReturnValue({ sub: "99", user_id: 99, role: "Reporter", permissions: ["report:view", "camera:view"], exp: 9999999999 });
     vi.mocked(apiFetch).mockImplementation(async (path) => path.startsWith("/cameras/") ? { data: [{ id: path.includes("page=1") ? 7 : 8 }], meta: { total_pages: 2 } } : [] as never);
@@ -30,12 +46,12 @@ describe("hourly and daily report filters", () => {
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { filename = this.download; });
     mount(); await screen.findByRole("option", { name: "Camera #7" });
     fireEvent.click(screen.getByRole("button", { name: "Theo ngày" }));
-    fireEvent.change(screen.getByLabelText("Từ ngày (UTC)"), { target: { value: "2026-10-01" } });
-    fireEvent.change(screen.getByLabelText("Đến ngày (UTC)"), { target: { value: "2026-10-07" } });
+    fireEvent.change(screen.getByLabelText("Từ ngày (UTC+7)"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText("Đến ngày (UTC+7)"), { target: { value: "2026-10-07" } });
     fireEvent.change(screen.getByLabelText("Camera báo cáo"), { target: { value: "7" } });
     await screen.findByText("2026-10-01", { selector: "td" });
     fireEvent.click(screen.getByRole("button", { name: "Xuất CSV" }));
-    expect(filename).toBe("parking-daily-2026-10-01-2026-10-07-camera-7.csv");
+    expect(filename).toBe("parking-daily-2026-10-01-2026-10-07-camera-7-utc-plus-7.csv");
     const csv = await new Promise<string>((resolve) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(blob); });
     expect(csv).toBe("date,avg_utilization,samples\n2026-10-01,,0");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:test-csv");
@@ -43,23 +59,23 @@ describe("hourly and daily report filters", () => {
   it("requests daily reports with the backend aliases and optional camera", async () => {
     mount(); await screen.findByRole("option", { name: "Camera #7" });
     fireEvent.click(screen.getByRole("button", { name: "Theo ngày" }));
-    fireEvent.change(screen.getByLabelText("Từ ngày (UTC)"), { target: { value: "2026-10-01" } });
-    fireEvent.change(screen.getByLabelText("Đến ngày (UTC)"), { target: { value: "2026-10-07" } });
+    fireEvent.change(screen.getByLabelText("Từ ngày (UTC+7)"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText("Đến ngày (UTC+7)"), { target: { value: "2026-10-07" } });
     fireEvent.change(screen.getByLabelText("Camera báo cáo"), { target: { value: "7" } });
-    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith("/api/stats/daily?from=2026-10-01&to=2026-10-07&camera_id=7", expect.anything()));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith("/api/stats/daily?from=2026-10-01&to=2026-10-07&utc_offset_minutes=420&camera_id=7", expect.anything()));
     expect(await screen.findByText("2026-10-01", { selector: "td" })).toBeTruthy();
     expect(screen.getByText("2026-10-01", { selector: "td" }).parentElement?.textContent).toContain("—0");
   });
   it("rejects reversed and overlong ranges before calling the API", async () => {
     mount(); await screen.findByRole("option", { name: "Camera #7" });
     fireEvent.click(screen.getByRole("button", { name: "Theo ngày" }));
-    fireEvent.change(screen.getByLabelText("Từ ngày (UTC)"), { target: { value: "2026-10-07" } });
-    fireEvent.change(screen.getByLabelText("Đến ngày (UTC)"), { target: { value: "2026-10-01" } });
+    fireEvent.change(screen.getByLabelText("Từ ngày (UTC+7)"), { target: { value: "2026-10-07" } });
+    fireEvent.change(screen.getByLabelText("Đến ngày (UTC+7)"), { target: { value: "2026-10-01" } });
     const count = vi.mocked(apiFetch).mock.calls.length;
     expect(screen.getByRole("alert").textContent).toContain("Ngày kết thúc");
     fireEvent.click(screen.getByRole("button", { name: "Xuất CSV" }));
     expect(apiFetch).toHaveBeenCalledTimes(count);
-    fireEvent.change(screen.getByLabelText("Đến ngày (UTC)"), { target: { value: "2028-10-01" } });
+    fireEvent.change(screen.getByLabelText("Đến ngày (UTC+7)"), { target: { value: "2028-10-01" } });
     expect(screen.getByRole("alert").textContent).toContain("366 ngày");
     expect(apiFetch).toHaveBeenCalledTimes(count);
   });

@@ -2,7 +2,7 @@ import type { Camera, HourlyStat, ParkingMap, Permission, Role, User } from "./t
 
 const statuses = ["EMPTY", "OCCUPIED", "OCCUPIED", "RESERVED", "EMPTY", "UNKNOWN", "OCCUPIED", "OCCUPIED"] as const;
 export const demoMap: ParkingMap = {
-  summary: { total_slots: 40, empty_slots: 12, occupied_slots: 23, reserved_slots: 3, unknown_slots: 2, has_unknown_alert: true },
+  summary: { total_slots: 40, empty_slots: 10, occupied_slots: 20, reserved_slots: 5, unknown_slots: 5, available_slots: 10, uninitialized_slots: 0, has_unknown_alert: true },
   slots: Array.from({ length: 40 }, (_, index) => {
     const col = index % 8;
     const row = Math.floor(index / 8);
@@ -19,7 +19,8 @@ export const demoMap: ParkingMap = {
         { x: 170 + col * 115, y: 180 + row * 115 },
         { x: 80 + col * 115, y: 180 + row * 115 }
       ],
-      updated_at: new Date().toISOString()
+      observation_ready: true, needs_reconciliation: false, active_session_id: null,
+      observed_at: new Date().toISOString(), updated_at: new Date().toISOString()
     };
   })
 };

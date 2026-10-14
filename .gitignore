@@ -2,6 +2,7 @@ datasets/.sam2.1_b.pt.1798c593753c443fa09999e988daf2de.part
 datasets/sam2.1_b.pt
 datasets/video1.mp4
 .venv
+.venv-test/
 datasets/input.json
 datasets/output.json
 datasets/points.txt

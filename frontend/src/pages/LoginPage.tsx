@@ -60,6 +60,7 @@ export function LoginPage() {
         {isDemoMode() && <p className="parking-login__demo">Chế độ xem mẫu — không cần nhập tài khoản.</p>}
         <div className="parking-login__separator" aria-hidden="true">hoặc</div>
         <button className="parking-login__lookup" type="button" onClick={() => navigate("/lookup")}><Search aria-hidden="true" />Tra cứu chỗ đỗ<span className="sr-only"> không cần đăng nhập</span></button>
+        {import.meta.env.DEV && <button className="parking-login__lookup" type="button" onClick={() => navigate("/scenarios")}>Trình diễn tình huống demo</button>}
       </form>
       <p className="parking-login__account-help">Bạn cần tài khoản? <button className="parking-login__help-link" type="button" aria-expanded={helpOpen} aria-controls="login-help" onClick={() => setHelpOpen((open) => !open)}>Liên hệ quản trị viên</button></p>
     </section>
