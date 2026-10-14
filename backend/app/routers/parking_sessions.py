@@ -16,7 +16,7 @@ router = APIRouter(prefix="/parking-sessions", tags=["Parking sessions"],
 
 @router.get("", response_model=schemas.ParkingSessionListResponse)
 def list_sessions(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
-                  status: schemas.ParkingSessionStatus | None = None,
+                  is_active: bool | None = None,
                   parking_slot_id: int | None = Query(None, gt=0),
                   license_plate: str | None = Query(None, max_length=30),
                   phone_number: str | None = Query(None, max_length=30),
@@ -28,8 +28,8 @@ def list_sessions(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
     if created_from and created_to and created_to <= created_from:
         raise HTTPException(422, "created_to must be after created_from")
     query = db.query(models.ParkingSession)
-    if status:
-        query = query.filter_by(status=status.value)
+    if is_active is not None:
+        query = query.filter_by(is_active=is_active)
     if parking_slot_id:
         query = query.filter_by(parking_slot_id=parking_slot_id)
     if license_plate:

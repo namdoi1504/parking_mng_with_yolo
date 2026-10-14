@@ -12,7 +12,6 @@ from ..config import settings
 from ..parking_cache import parking_cache
 from ..schemas import ParkingSlotResponse
 
-ACTIVE = ("RESERVED", "PARKED")
 _UNSET = object()
 RESERVATION_DURATION = timedelta(minutes=10)
 
@@ -27,7 +26,7 @@ def now_utc():
 
 def active_session(db, slot_id):
     return (db.query(models.ParkingSession).filter(models.ParkingSession.parking_slot_id == slot_id,
-            models.ParkingSession.status.in_(ACTIVE)).with_for_update().populate_existing().first())
+            models.ParkingSession.is_active.is_(True)).with_for_update().populate_existing().first())
 
 
 def observation_ready(slot, now=None, camera=None):
@@ -40,9 +39,9 @@ def observation_ready(slot, now=None, camera=None):
 def slot_response(slot, session=None, now=None, camera=None):
     result = ParkingSlotResponse.model_validate(slot)
     result.observation_ready = observation_ready(slot, now, camera)
-    if session and session.status in ACTIVE:
+    if session and session.is_active:
         result.active_session_id = session.id
-        result.reservation_expires_at = utc(session.reservation_expires_at) if session.reservation_expires_at else None
+        result.reservation_expires_at = reservation_deadline(session)
     return result
 
 
@@ -55,11 +54,20 @@ def lock_slot(db, slot_id):
     return camera, slot
 
 
+def reservation_deadline(session):
+    return utc(session.created_at) + RESERVATION_DURATION
+
+
+def within_reservation(session, stamp):
+    return bool(session and
+                timedelta(0) <= utc(stamp) - utc(session.created_at) < RESERVATION_DURATION)
+
+
 def session_message(session):
+    deadline = reservation_deadline(session)
     return {"type": "PARKING_SESSION_CHANGED", "session_id": session.id,
-            "parking_slot_id": session.parking_slot_id, "status": session.status,
-            "reservation_expires_at": (utc(session.reservation_expires_at).isoformat()
-                                       if session.reservation_expires_at else None)}
+            "parking_slot_id": session.parking_slot_id, "is_active": session.is_active,
+            "reservation_expires_at": deadline.isoformat() if deadline else None}
 
 
 def set_status(db, slot, target, stamp, messages, session=None, source="AI", confidence=None):
@@ -79,71 +87,46 @@ def set_status(db, slot, target, stamp, messages, session=None, source="AI", con
 
 
 def finish_session(session, slot, now, messages, *, source="AI"):
-    session.status = "COMPLETED" if session.status == "PARKED" else "EXPIRED"
-    session.ended_at = now
-    session.updated_at = now
-    if session.status == "COMPLETED":
-        session.departed_at = slot.last_empty_at
-        session.departure_source = source if slot.last_empty_at else "UNVERIFIED"
+    session.is_active = False
     messages.append(session_message(session))
 
 
 def reconcile(db, slot, occupancy, observed_at, now, messages, *, source="AI", confidence=None, session=_UNSET):
     if session is _UNSET:
         session = active_session(db, slot.id)
-    within = bool(session and session.reservation_expires_at and
-                  utc(observed_at) < utc(session.reservation_expires_at))
-    # Do not attach an old pre-booking frame to a newly-created reservation.
-    if within and utc(observed_at) < utc(session.reserved_at):
+    if session and utc(observed_at) < utc(session.created_at):
         return False
-    if (occupancy == "OCCUPIED" and session and session.status == "PARKED"
-            and session.reservation_expires_at and not within
-            and slot.last_observed_occupancy == "EMPTY"):
-        # A missed expiry sweep must not reattach a vehicle returning after the hold ended.
-        finish_session(session, slot, now, messages, source="EXPIRY")
+    within = within_reservation(session, observed_at)
+    # Past the hold, only an already-present vehicle keeps its session.
+    if (occupancy == "OCCUPIED" and session and not within
+            and not (slot.status == "OCCUPIED" and slot.last_observed_occupancy == "OCCUPIED")):
+        finish_session(session, slot, now, messages)
         session = None
     slot.last_observed_occupancy = occupancy
-    slot.observed_at = observed_at
-    slot.updated_at = observed_at
+    slot.observed_at = slot.updated_at = observed_at
     slot.observation_backend_id = observation_runtime.backend_id
     if slot.needs_reconciliation and slot.status == "RESERVED" and session is None:
-        # Legacy holds have no reliable deadline/customer; an operator must release them.
         return False
     if occupancy == "EMPTY":
-        # Preserve the first confirmed departure when a deadline job runs later.
         if slot.last_empty_at is None or slot.status in ("OCCUPIED", "UNKNOWN"):
             slot.last_empty_at = observed_at
-        if session and session.reservation_expires_at and utc(now) < utc(session.reservation_expires_at):
+        if within_reservation(session, now):
             target = "RESERVED"
         else:
             if session:
-                finish_session(session, slot, now, messages, source=source)
+                finish_session(session, slot, now, messages)
             target = "EMPTY"
     else:
-        if session and session.status == "RESERVED":
-            if within:
-                session.status = "PARKED"
-                session.arrived_at = observed_at
-                session.arrival_source = source
-                session.updated_at = now
-                messages.append(session_message(session))
-            else:
-                session.status = "EXPIRED"
-                session.ended_at = now
-                session.updated_at = now
-                messages.append(session_message(session))
-                session = None
-        target = "OCCUPIED" if session and session.status == "PARKED" else "UNKNOWN"
+        target = "OCCUPIED" if session else "UNKNOWN"
         slot.last_empty_at = None
     return set_status(db, slot, target, observed_at, messages, session, source, confidence)
-
 
 
 def active_sessions(db, slot_ids):
     if not slot_ids:
         return {}
     rows = db.query(models.ParkingSession).filter(models.ParkingSession.parking_slot_id.in_(slot_ids),
-        models.ParkingSession.status.in_(ACTIVE)).order_by(models.ParkingSession.parking_slot_id).with_for_update().populate_existing().all()
+        models.ParkingSession.is_active.is_(True)).order_by(models.ParkingSession.parking_slot_id).with_for_update().populate_existing().all()
     return {row.parking_slot_id: row for row in rows}
 
 
@@ -167,17 +150,14 @@ def persist_observed_slots(db, slots):
             **dict(group)).execution_options(synchronize_session=False))
 
 def expire_locked(db, slot, session, camera, now, messages):
-    if (not session or not session.reservation_expires_at or
-            utc(now) < utc(session.reservation_expires_at) or not observation_ready(slot, now, camera)):
+    if (not session or within_reservation(session, now)
+            or utc(now) < utc(session.created_at) or not observation_ready(slot, now, camera)):
         return
     if slot.last_observed_occupancy == "EMPTY":
-        finish_session(session, slot, now, messages, source="EXPIRY")
+        finish_session(session, slot, now, messages)
         set_status(db, slot, "EMPTY", now, messages, session, "EXPIRY")
-    elif session.status == "RESERVED":
-        session.status = "EXPIRED"
-        session.ended_at = now
-        session.updated_at = now
-        messages.append(session_message(session))
+    elif slot.status != "OCCUPIED":
+        finish_session(session, slot, now, messages)
         set_status(db, slot, "UNKNOWN", now, messages, session, "EXPIRY")
 
 
@@ -189,7 +169,8 @@ def expire_reservations(*, now=None, session_factory=None):
     with factory() as db:
         camera_ids = [row[0] for row in db.query(models.ParkingSlot.camera_id).join(
             models.ParkingSession, models.ParkingSession.parking_slot_id == models.ParkingSlot.id).filter(
-            models.ParkingSession.status.in_(ACTIVE), models.ParkingSession.reservation_expires_at <= now
+            models.ParkingSession.is_active.is_(True),
+            models.ParkingSession.created_at <= now - RESERVATION_DURATION
         ).distinct().order_by(models.ParkingSlot.camera_id).all()]
     # One consistent camera lock order, independent of request processing.
     for camera_id in camera_ids:
@@ -201,8 +182,8 @@ def expire_reservations(*, now=None, session_factory=None):
                     continue
                 ids = [row[0] for row in db.query(models.ParkingSession.parking_slot_id).join(
                     models.ParkingSlot, models.ParkingSlot.id == models.ParkingSession.parking_slot_id).filter(
-                    models.ParkingSlot.camera_id == camera_id, models.ParkingSession.status.in_(ACTIVE),
-                    models.ParkingSession.reservation_expires_at <= now).all()]
+                    models.ParkingSlot.camera_id == camera_id, models.ParkingSession.is_active.is_(True),
+                    models.ParkingSession.created_at <= now - RESERVATION_DURATION).all()]
                 slots = db.query(models.ParkingSlot).filter(models.ParkingSlot.id.in_(ids)).order_by(
                     models.ParkingSlot.id).with_for_update().populate_existing().all()
                 sessions = active_sessions(db, ids)
@@ -230,7 +211,7 @@ def manual_action(db: Session, slot_id, action, user_id, customer=None, *, now=N
             raise HTTPException(409, "This session is no longer active")
         # Reconcile expired empty holds before accepting a new booking.
         expire_locked(db, slot, session, camera, now, messages)
-        if session and session.status not in ACTIVE:
+        if session and not session.is_active:
             session = None
         ready = observation_ready(slot, now, camera)
         if action in ("reserve", "check-in"):
@@ -244,18 +225,8 @@ def manual_action(db: Session, slot_id, action, user_id, customer=None, *, now=N
                 raise HTTPException(409, "Confirm the vehicle in the slot before check-in")
             slot.needs_reconciliation = False
             values = customer.model_dump()
-            supplied_arrival = values.pop("arrived_at", None)
-            if supplied_arrival is not None and utc(supplied_arrival) > now:
-                raise HTTPException(422, "arrived_at cannot be in the future")
             session = models.ParkingSession(parking_slot_id=slot.id, created_by=user_id, **values,
-                        status="RESERVED" if action == "reserve" else "PARKED", created_at=now, updated_at=now)
-            if action == "reserve":
-                session.reserved_at = now
-                session.reservation_expires_at = now + RESERVATION_DURATION
-            else:
-                # Late registration can legitimately have no known arrival time.
-                session.arrived_at = supplied_arrival
-                session.arrival_source = "MANUAL" if supplied_arrival else "LATE_UNKNOWN"
+                        is_active=True, created_at=now)
             db.add(session)
             db.flush()
             set_status(db, slot, "RESERVED" if action == "reserve" else "OCCUPIED", now,
@@ -270,29 +241,23 @@ def manual_action(db: Session, slot_id, action, user_id, customer=None, *, now=N
             set_status(db, slot, "EMPTY" if slot.last_observed_occupancy == "EMPTY" else "UNKNOWN",
                        now, messages, source="MANUAL")
         elif action == "cancel-reservation":
-            if not session or session.status != "RESERVED":
+            if not session or slot.status != "RESERVED":
                 raise HTTPException(409, "No unarrived reservation to cancel")
             if not ready:
                 raise HTTPException(409, "Fresh camera observation required")
-            session.status = "CANCELLED"
-            session.cancelled_at = session.ended_at = session.updated_at = now
+            session.is_active = False
             set_status(db, slot, "EMPTY" if slot.last_observed_occupancy == "EMPTY" else "UNKNOWN",
                        now, messages, session, "MANUAL")
             messages.append(session_message(session))
         elif action == "confirm-arrival":
-            if (not session or session.status != "RESERVED" or not session.reservation_expires_at or
-                    now >= utc(session.reservation_expires_at)):
-                raise HTTPException(409, "No valid unarrived reservation")
+            if not within_reservation(session, now) or slot.status != "RESERVED":
+                raise HTTPException(409, "No valid reservation awaiting arrival")
             if not ready or slot.last_observed_occupancy != "OCCUPIED":
                 raise HTTPException(409, "Fresh occupied observation required")
-            session.status = "PARKED"
-            session.arrived_at = now
-            session.arrival_source = "MANUAL"
-            session.updated_at = now
             set_status(db, slot, "OCCUPIED", now, messages, session, "MANUAL")
             messages.append(session_message(session))
         elif action == "check-out":
-            if not session or session.status != "PARKED":
+            if not session:
                 raise HTTPException(409, "No parked session")
             if not ready or slot.last_observed_occupancy != "EMPTY":
                 raise HTTPException(409, "Fresh empty observation required before checkout")

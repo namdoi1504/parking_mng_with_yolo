@@ -265,31 +265,17 @@ class ParkingEvent(Base):
 class ParkingSession(Base):
     __tablename__ = "parking_sessions"
     __table_args__ = (
-        CheckConstraint("status IN ('RESERVED','PARKED','COMPLETED','CANCELLED','EXPIRED')", name="ck_session_status"),
-        CheckConstraint("(reserved_at IS NULL AND reservation_expires_at IS NULL) OR "
-                        "(reserved_at IS NOT NULL AND reservation_expires_at > reserved_at)", name="ck_session_expiry"),
-        CheckConstraint("departed_at IS NULL OR arrived_at IS NULL OR departed_at >= arrived_at", name="ck_session_times"),
         Index("uq_session_active_slot", "parking_slot_id", unique=True,
-              postgresql_where=text("status IN ('RESERVED','PARKED')"),
-              sqlite_where=text("status IN ('RESERVED','PARKED')")),
+              postgresql_where=text("is_active = true"), sqlite_where=text("is_active = 1")),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     parking_slot_id: Mapped[int] = mapped_column(Integer, ForeignKey("parking_slots.id"), nullable=False, index=True)
     customer_name: Mapped[str] = mapped_column(String(100), nullable=False)
     phone_number: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     license_plate: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False)
-    reserved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reservation_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
-    arrived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    departed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    arrival_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    departure_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class ParkingStatistic(Base):

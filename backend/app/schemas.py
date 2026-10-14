@@ -444,22 +444,7 @@ class ParkingCustomerInput(BaseModel):
 
 
 class ParkingCheckInInput(ParkingCustomerInput):
-    arrived_at: datetime | None = None
-
-    @field_validator("arrived_at")
-    @classmethod
-    def arrival_timezone(cls, value):
-        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
-            raise ValueError("arrived_at requires a timezone")
-        return value
-
-
-class ParkingSessionStatus(str, Enum):
-    RESERVED = "RESERVED"
-    PARKED = "PARKED"
-    COMPLETED = "COMPLETED"
-    CANCELLED = "CANCELLED"
-    EXPIRED = "EXPIRED"
+    pass
 
 
 class ParkingSessionResponse(ORMBaseModel):
@@ -468,18 +453,9 @@ class ParkingSessionResponse(ORMBaseModel):
     customer_name: str
     phone_number: str
     license_plate: str
-    status: ParkingSessionStatus
-    reserved_at: datetime | None
-    reservation_expires_at: datetime | None
-    arrived_at: datetime | None
-    departed_at: datetime | None
-    ended_at: datetime | None
-    cancelled_at: datetime | None
-    arrival_source: str | None
-    departure_source: str | None
+    is_active: bool
     created_by: int
     created_at: datetime
-    updated_at: datetime
 
 
 class ParkingSessionListResponse(BaseModel):

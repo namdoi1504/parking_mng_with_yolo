@@ -245,7 +245,7 @@ def load_parking_map(db: Session):
     slots = db.query(models.ParkingSlot).order_by(models.ParkingSlot.slot_code).all()
     cameras = {camera.id: camera for camera in db.query(models.Camera).all()}
     sessions = {session.parking_slot_id: session for session in db.query(models.ParkingSession).filter(
-        models.ParkingSession.status.in_(("RESERVED", "PARKED"))).all()}
+        models.ParkingSession.is_active.is_(True)).all()}
     total    = len(slots)
     occupied = sum(1 for s in slots if s.status == "OCCUPIED")
     empty    = sum(1 for s in slots if s.status == "EMPTY")

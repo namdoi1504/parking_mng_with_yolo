@@ -39,10 +39,7 @@ def elapse(database, slot, minutes=11):
     with database() as db:
         session = db.query(models.ParkingSession).filter_by(parking_slot_id=slot).one()
         shift = timedelta(minutes=minutes)
-        session.reserved_at = utc(session.reserved_at) - shift
-        session.reservation_expires_at = utc(session.reservation_expires_at) - shift
-        if session.arrived_at:
-            session.arrived_at = utc(session.arrived_at) - shift
+        session.created_at = utc(session.created_at) - shift
         db.commit()
 
 
@@ -83,8 +80,8 @@ def test_reservation_fields_and_customer_privacy(client, database, headers, slot
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
     assert detail["customer_name"] == "Nguyen Van A" and detail["license_plate"] == "51A12345"
     assert detail["phone_number"] == "0901234567"
-    assert datetime.fromisoformat(detail["reservation_expires_at"]) - datetime.fromisoformat(detail["reserved_at"]) == timedelta(minutes=10)
-    assert detail["arrived_at"] is None
+    assert datetime.fromisoformat(result.json()["reservation_expires_at"]) - datetime.fromisoformat(detail["created_at"]) == timedelta(minutes=10)
+    assert detail["is_active"]
     for call in broadcast.call_args_list:
         assert not {"customer_name", "phone_number", "license_plate"} & call.args[0].keys()
     assert "phone_number" not in str(client.get("/api/ai/map").json())
@@ -97,15 +94,16 @@ def test_repeated_entry_within_window_then_departure_after_expiry(client, databa
     session_id, deadline = result["active_session_id"], result["reservation_expires_at"]
     assert observer("OCCUPIED").json()["changed_slots"] == 1
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
-    first_arrival = detail["arrived_at"]
+    first_creation = detail["created_at"]
     assert state(client) == "OCCUPIED"
     assert observer("EMPTY").status_code == 200
     assert state(client) == "RESERVED"
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
-    assert detail["status"] == "PARKED" and detail["departed_at"] is None
+    assert detail["is_active"]
     assert observer("OCCUPIED").status_code == 200
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
-    assert detail["arrived_at"] == first_arrival and detail["reservation_expires_at"] == deadline
+    assert detail["created_at"] == first_creation
+    assert client.get("/api/ai/map").json()["slots"][0]["reservation_expires_at"] == deadline
     assert len(client.get(f"/parking-sessions/{session_id}/events", headers=headers).json()["data"]) == 4
     elapse(database, slot)
     assert expire_reservations(session_factory=database) == []
@@ -113,7 +111,7 @@ def test_repeated_entry_within_window_then_departure_after_expiry(client, databa
     assert observer("EMPTY").status_code == 200
     assert state(client) == "EMPTY"
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
-    assert detail["status"] == "COMPLETED" and detail["departed_at"] is not None
+    assert detail["is_active"] is False
     assert observer("OCCUPIED").status_code == 200
     assert state(client) == "UNKNOWN"
     with database() as db:
@@ -131,8 +129,7 @@ def test_expiry_empty_without_new_ai_message(client, database, headers, observer
     assert any(item.get("new_status") == "EMPTY" for item in messages)
     assert state(client) == "EMPTY"
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
-    assert detail["status"] == ("COMPLETED" if visited else "EXPIRED")
-    assert (detail["departed_at"] is not None) == visited
+    assert detail["is_active"] is False
     assert expire_reservations(session_factory=database) == []
     observer("OCCUPIED")
     assert state(client) == "UNKNOWN"
@@ -144,14 +141,14 @@ def test_first_arrival_after_deadline_is_unknown(client, database, headers, obse
     assert observer("OCCUPIED").status_code == 200
     assert state(client) == "UNKNOWN"
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
-    assert detail["status"] == "EXPIRED" and detail["arrived_at"] is None
+    assert detail["is_active"] is False
 
 
 def test_exact_deadline(client, database, headers, slot):
     session_id = reserve(client, headers, slot).json()["active_session_id"]
     with database() as db:
         session = db.get(models.ParkingSession, session_id)
-        deadline = utc(session.reservation_expires_at)
+        deadline = utc(session.created_at) + timedelta(minutes=10)
         slot_obj = db.get(models.ParkingSlot, slot)
         slot_obj.observed_at = deadline
         db.commit()
@@ -192,13 +189,14 @@ def test_cancel_and_check_in_checkout(client, database, headers, observer, slot)
     assert result.status_code == 200 and result.json()["status"] == "OCCUPIED"
     session_id = result.json()["active_session_id"]
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
-    assert detail["arrival_source"] == "LATE_UNKNOWN" and detail["arrived_at"] is None
+    assert detail["is_active"]
     assert client.post(f"/parking-sessions/{session_id}/check-out", headers=headers).status_code == 409
     observer("EMPTY")
+    assert state(client) == "RESERVED"  # direct check-in now gets the same 10-minute hold
+    assert client.post(f"/parking-sessions/{session_id}/check-out", headers=headers).status_code == 200
     assert state(client) == "EMPTY"
-    assert client.post(f"/parking-sessions/{session_id}/check-out", headers=headers).status_code == 409
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
-    assert detail["status"] == "COMPLETED"
+    assert detail["is_active"] is False
 
 
 def test_checkout_ends_reentry_rights(client, headers, observer, slot):
@@ -238,7 +236,7 @@ def test_old_frame_does_not_attach_to_new_booking(client, database, headers, obs
     assert observer("OCCUPIED", observed_at=old).status_code == 200
     assert state(client) == "RESERVED"
     with database() as db:
-        assert db.query(models.ParkingSession).one().arrived_at is None
+        assert db.query(models.ParkingSession).one().is_active is True
 
 
 def test_postgres_concurrent_booking(database, client, slot):
@@ -300,7 +298,7 @@ def test_return_after_expiry_without_sweep_is_unknown(client, database, headers,
     assert observer("OCCUPIED").status_code == 200
     assert state(client) == "UNKNOWN"
     detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
-    assert detail["status"] == "COMPLETED" and detail["departed_at"] is not None
+    assert detail["is_active"] is False
 
 
 def test_new_booking_replaces_expired_empty_hold_atomically(client, database, headers, slot):
@@ -310,5 +308,31 @@ def test_new_booking_replaces_expired_empty_hold_atomically(client, database, he
     assert second.status_code == 200
     assert second.json()["active_session_id"] != first_id
     with database() as db:
-        assert db.get(models.ParkingSession, first_id).status == "EXPIRED"
-        assert db.query(models.ParkingSession).filter(models.ParkingSession.status.in_(("RESERVED", "PARKED"))).count() == 1
+        assert db.get(models.ParkingSession, first_id).is_active is False
+        assert db.query(models.ParkingSession).filter(models.ParkingSession.is_active.is_(True)).count() == 1
+
+
+def test_minimal_session_fields_and_filters(client, headers, slot):
+    result = reserve(client, headers, slot).json()
+    detail = client.get(f"/parking-sessions/{result['active_session_id']}", headers=headers).json()
+    assert set(detail) == {"id", "parking_slot_id", "customer_name", "phone_number", "license_plate",
+                           "created_at", "created_by", "is_active"}
+    assert client.get("/parking-sessions?is_active=true", headers=headers).json()["meta"]["total"] == 1
+    assert client.get("/parking-sessions?is_active=false", headers=headers).json()["meta"]["total"] == 0
+
+
+def test_direct_check_in_has_same_ten_minute_reentry_window(client, database, headers, observer, slot):
+    observer("OCCUPIED")
+    result = client.post(f"/parking-slots/{slot}/check-in", headers=headers, json=CUSTOMER).json()
+    assert result["reservation_expires_at"] is not None
+    session_id = result["active_session_id"]
+    observer("EMPTY")
+    assert state(client) == "RESERVED"
+    observer("OCCUPIED")
+    assert state(client) == "OCCUPIED"
+    elapse(database, slot)
+    observer("EMPTY")
+    assert state(client) == "EMPTY"
+    observer("OCCUPIED")
+    assert state(client) == "UNKNOWN"
+    assert client.get(f"/parking-sessions/{session_id}", headers=headers).json()["is_active"] is False
