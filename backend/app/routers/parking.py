@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
+from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -8,6 +8,7 @@ from ..db import get_db
 from ..config import settings
 from ..parking_cache import parking_cache
 from .. import models
+from ..services.parking_slots import (reconcile, slot_response, now_utc, utc, active_sessions, persist_observed_slots)
 from ..schemas import (
     AIParkingStatusRequest,
     AIUpdateResult,
@@ -31,6 +32,7 @@ class SlotSyncItem(BaseModel):
 
 
 class SlotSyncRequest(BaseModel):
+    run_id: UUID | None = None
     camera_id: int = Field(gt=0, le=2147483647)
     camera_name: str = Field(default="Camera 1", min_length=1, max_length=100)
     camera_source_url: str = Field(default="file://parking_car.mp4", min_length=1, max_length=255)
@@ -46,6 +48,7 @@ class SlotSyncRequest(BaseModel):
 
 
 class SlotSyncResult(BaseModel):
+    run_id: str
     camera_id: int
     total: int
     created: int
@@ -78,7 +81,11 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
     else:
         actual_camera_id = camera.id
 
-    db.query(models.Camera).filter_by(id=actual_camera_id).with_for_update().one()
+    camera = db.query(models.Camera).filter_by(id=actual_camera_id).with_for_update().populate_existing().one()
+    run_id = str(data.run_id) if data.run_id else camera.ai_run_id or str(uuid4())
+    if camera.ai_run_id != run_id:
+        camera.ai_run_id = run_id
+        camera.ai_sequence = 0
     existing_slots = (
         db.query(models.ParkingSlot)
         .filter(models.ParkingSlot.camera_id == actual_camera_id)
@@ -105,7 +112,7 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
                 roi_coordinates = roi,
                 col = item.col,
                 row = item.row,
-                status          = "EMPTY",
+                status          = None,
             ))
             created += 1
         else:
@@ -113,6 +120,7 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
                 existing.roi_coordinates = roi
                 existing.col = item.col
                 existing.row = item.row
+                existing.observed_at = None
                 updated += 1
             else:
                 unchanged += 1
@@ -122,10 +130,10 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
 
     commit(db)
 
-    if created or updated:
-        parking_cache.invalidate()
+    parking_cache.invalidate()
 
     return SlotSyncResult(
+        run_id = run_id,
         camera_id = actual_camera_id,
         total     = len(data.slots),
         created   = created,
@@ -157,81 +165,52 @@ async def receive_parking_status(
 
 def apply_parking_status(data: AIParkingStatusRequest, db: Session):
     """Run the complete synchronous transaction off the streaming event loop."""
-    get_or_404(db, models.Camera, data.camera_id, lock=True)
-    changed       = 0
-    unchanged     = 0
-    unknown_slots = []
-    reserved_skipped_slots = []
-
-    incoming_codes = [s.slot_code for s in data.parking_slots]
-    slot_rows = (
-        db.query(models.ParkingSlot)
-        .filter(models.ParkingSlot.slot_code.in_(incoming_codes),
-                models.ParkingSlot.camera_id == data.camera_id)
-        .order_by(models.ParkingSlot.id)
-        .with_for_update()
-        .populate_existing()
-        .all()
-    )
-    slot_by_code: dict[str, models.ParkingSlot] = {s.slot_code: s for s in slot_rows}
-
-    new_events: list[models.ParkingEvent] = []
-    ws_messages: list[dict] = []
-
-    event_time = datetime.now(timezone.utc)
-    for slot_data in data.parking_slots:
-        slot = slot_by_code.get(slot_data.slot_code)
-
-        if not slot:
-            unknown_slots.append(slot_data.slot_code)
-            continue
-
-        if slot.status == "RESERVED":
-            reserved_skipped_slots.append(slot.slot_code)
-            continue
-
-        old_status = slot.status
-
-        if old_status != slot_data.status.value:
-            slot.status = slot_data.status.value
-
-            new_events.append(models.ParkingEvent(
-                parking_slot_id = slot.id,
-                event_time      = event_time,
-                old_status      = old_status,
-                new_status      = slot_data.status.value,
-                confidence      = slot_data.confidence if slot_data.confidence is not None else 1.0,
-            ))
-            ws_messages.append({
-                "type"            : "SLOT_STATUS_CHANGED",
-                "parking_slot_id" : slot.id,
-                "slot_code"       : slot.slot_code,
-                "camera_id"       : data.camera_id,
-                "old_status"      : old_status,
-                "new_status"      : slot_data.status.value,
-                "confidence"      : slot_data.confidence,
-                "event_time"      : event_time.isoformat(),
-            })
-            changed += 1
-        else:
-            unchanged += 1
-
-    if new_events:
-        db.add_all(new_events)
-
-    commit(db)
-
-    if changed:
-        parking_cache.invalidate()
-
-    return AIUpdateResult(
-        camera_id       = data.camera_id,
-        received_slots  = len(data.parking_slots),
-        changed_slots   = changed,
-        unchanged_slots = unchanged,
-        unknown_slots   = unknown_slots,
-        reserved_skipped_slots = reserved_skipped_slots,
-    ), ws_messages
+    messages = []
+    try:
+        camera = get_or_404(db, models.Camera, data.camera_id, lock=True)
+        now = now_utc()
+        observed_at = utc(data.observed_at)
+        if camera.ai_run_id != str(data.run_id):
+            raise HTTPException(409, "AI run is not active; sync slots first")
+        if data.sequence <= camera.ai_sequence:
+            raise HTTPException(409, "Duplicate or out-of-order observation")
+        age = (now - observed_at).total_seconds()
+        if age < 0 or age > settings.OBSERVATION_MAX_AGE_SECONDS:
+            raise HTTPException(409, "Observation is stale or in the future")
+        incoming_codes = [item.slot_code for item in data.parking_slots]
+        rows = (db.query(models.ParkingSlot).filter(models.ParkingSlot.camera_id == camera.id,
+                models.ParkingSlot.slot_code.in_(incoming_codes)).order_by(models.ParkingSlot.id)
+                .with_for_update().populate_existing().all())
+        by_code = {slot.slot_code: slot for slot in rows}
+        sessions = active_sessions(db, [slot.id for slot in rows])
+        # Timestamp order protects slots when a later sequence contains an older frame.
+        if any(slot.observed_at and observed_at <= utc(slot.observed_at) for slot in rows):
+            raise HTTPException(409, "Observation predates the latest confirmed frame")
+        changed = unchanged = 0
+        unknown_slots = []
+        for item in data.parking_slots:
+            slot = by_code.get(item.slot_code)
+            if slot is None:
+                unknown_slots.append(item.slot_code)
+                continue
+            did_change = reconcile(db, slot, item.status.value, observed_at, now, messages,
+                                   confidence=item.confidence, session=sessions.get(slot.id))
+            # A frame captured before a new booking must not replace its observation.
+            if slot.observed_at == observed_at:
+                slot.observation_run_id = camera.ai_run_id
+            changed += int(did_change)
+            unchanged += int(not did_change)
+        camera.ai_sequence = data.sequence
+        persist_observed_slots(db, rows)
+        commit(db)
+    except Exception:
+        db.rollback()
+        raise
+    # Even unchanged occupancy refreshes observation age and reservation metadata.
+    parking_cache.invalidate()
+    return AIUpdateResult(camera_id=data.camera_id, received_slots=len(data.parking_slots),
+                          changed_slots=changed, unchanged_slots=unchanged,
+                          unknown_slots=unknown_slots, reserved_skipped_slots=[]), messages
 
 
 
@@ -250,11 +229,23 @@ def get_parking_summary(db: Session = Depends(get_db)):
     summary="Bản đồ bãi đỗ đầy đủ (summary + từng slot)"
 )
 def get_parking_map(db: Session = Depends(get_db)):
-    return parking_cache.get(lambda: load_parking_map(db), settings.PARKING_CACHE_TTL_SECONDS)
+    snapshot = parking_cache.get(lambda: load_parking_map(db), settings.PARKING_CACHE_TTL_SECONDS)
+    # Readiness can expire without a DB write; do not serve cached readiness forever.
+    now = now_utc()
+    slots = [item.model_copy(update={"observation_ready": bool(item.observation_ready and item.observed_at
+             and 0 <= (now - utc(item.observed_at)).total_seconds() <= settings.OBSERVATION_MAX_AGE_SECONDS)})
+             for item in snapshot.slots]
+    available = sum(item.status == "EMPTY" and item.observation_ready and item.active_session_id is None and not item.needs_reconciliation
+                    for item in slots)
+    return snapshot.model_copy(update={"slots": slots,
+              "summary": snapshot.summary.model_copy(update={"available_slots": available})})
 
 
 def load_parking_map(db: Session):
     slots = db.query(models.ParkingSlot).order_by(models.ParkingSlot.slot_code).all()
+    cameras = {camera.id: camera for camera in db.query(models.Camera).all()}
+    sessions = {session.parking_slot_id: session for session in db.query(models.ParkingSession).filter(
+        models.ParkingSession.status.in_(("RESERVED", "PARKED"))).all()}
     total    = len(slots)
     occupied = sum(1 for s in slots if s.status == "OCCUPIED")
     empty    = sum(1 for s in slots if s.status == "EMPTY")
@@ -269,8 +260,9 @@ def load_parking_map(db: Session):
             reserved_slots = reserved,
             unknown_slots  = unknown,
             has_unknown_alert = unknown > 0,
+            uninitialized_slots = sum(s.status is None for s in slots),
         ),
-        slots=[ParkingSlotResponse.model_validate(s) for s in slots],
+        slots=[slot_response(s, sessions.get(s.id), camera=cameras.get(s.camera_id)) for s in slots],
     )
 
 
@@ -280,4 +272,5 @@ def get_unknown_slots(camera_id: int | None = None, db: Session = Depends(get_db
     if camera_id is not None:
         get_or_404(db, models.Camera, camera_id)
         query = query.filter_by(camera_id=camera_id)
-    return query.order_by(models.ParkingSlot.id).all()
+    return [slot_response(slot, camera=db.get(models.Camera, slot.camera_id))
+            for slot in query.order_by(models.ParkingSlot.id).all()]

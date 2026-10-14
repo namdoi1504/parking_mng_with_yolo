@@ -1,7 +1,6 @@
 """UTC quarter-hour end snapshots reconstructed from state-change events."""
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
-from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from . import models
@@ -21,7 +20,7 @@ def aggregate_stats(period_minutes=15, *, now=None, session_factory=SessionLocal
     with session_factory() as db:
         # A consistent event/slot snapshot even while the AI commits updates.
         if db.bind.dialect.name == "postgresql":
-            db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
+            db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
         slots = db.query(models.ParkingSlot).filter(models.ParkingSlot.created_at < end).all()
         states = {slot.id: slot.status for slot in slots}
         # Rewind changes after the exclusive end boundary, including delayed job execution.

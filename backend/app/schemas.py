@@ -1,11 +1,20 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ORMBaseModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def utc_timestamps(cls, value):
+        # SQLite returns naive datetimes in tests; API timestamps always carry UTC.
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        return value
 
 
 class MessageResponse(BaseModel):
@@ -229,8 +238,13 @@ class ParkingSlotResponse(ORMBaseModel):
     camera_id: int
     slot_code: str
     roi_coordinates: list[ROICoordinate]
-    status: ParkingSlotStatusEnum
+    status: ParkingSlotStatusEnum | None
     updated_at: datetime
+    observed_at: datetime | None = None
+    observation_ready: bool = False
+    needs_reconciliation: bool = False
+    active_session_id: int | None = None
+    reservation_expires_at: datetime | None = None
 
 
 class ParkingSlotWithCameraResponse(ParkingSlotResponse):
@@ -241,15 +255,17 @@ class ParkingSlotWithCameraResponse(ParkingSlotResponse):
 
 class ParkingEventCreate(BaseModel):
     parking_slot_id: int
-    old_status: ParkingSlotStatusEnum
+    old_status: ParkingSlotStatusEnum | None
     new_status: ParkingSlotStatusEnum
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class ParkingEventResponse(ORMBaseModel):
     id: int
+    parking_session_id: int | None = None
+    source: str = "LEGACY"
     parking_slot_id: int
-    old_status: ParkingSlotStatusEnum
+    old_status: ParkingSlotStatusEnum | None
     new_status: ParkingSlotStatusEnum
     confidence: float
     event_time: datetime
@@ -291,7 +307,6 @@ class ParkingStatisticResponse(ORMBaseModel):
 class AIDetectionStatusEnum(str, Enum):
     EMPTY = "EMPTY"
     OCCUPIED = "OCCUPIED"
-    UNKNOWN = "UNKNOWN"
 
 
 class ParkingSlotDetection(BaseModel):
@@ -302,6 +317,16 @@ class ParkingSlotDetection(BaseModel):
 
 class AIParkingStatusRequest(BaseModel):
     camera_id: int = Field(gt=0)
+    run_id: UUID
+    sequence: int = Field(gt=0)
+    observed_at: datetime
+
+    @field_validator("observed_at")
+    @classmethod
+    def observation_timezone(cls, value):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("observed_at requires a timezone")
+        return value
     parking_slots: list[ParkingSlotDetection]
 
     @model_validator(mode="after")
@@ -330,6 +355,8 @@ class ParkingSummary(BaseModel):
     occupied_slots: int = Field(ge=0)
     reserved_slots: int = Field(ge=0)
     unknown_slots: int = Field(ge=0)
+    uninitialized_slots: int = Field(default=0, ge=0)
+    available_slots: int = Field(default=0, ge=0)
 
 
 class ParkingMapResponse(BaseModel):
@@ -344,7 +371,7 @@ class SlotStatusChangedEvent(BaseModel):
     parking_slot_id: int
     slot_code: str
     camera_id: int
-    old_status: ParkingSlotStatusEnum
+    old_status: ParkingSlotStatusEnum | None
     new_status: ParkingSlotStatusEnum
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     event_time: datetime
@@ -398,3 +425,63 @@ class CameraStatusUpdate(BaseModel):
 
 class AssignPermissionRequest(BaseModel):
     permission_id: int = Field(gt=0)
+
+
+class ParkingCustomerInput(BaseModel):
+    customer_name: str = Field(min_length=1, max_length=100)
+    phone_number: str = Field(min_length=1, max_length=30)
+    license_plate: str = Field(min_length=1, max_length=30)
+
+    @field_validator("customer_name", "phone_number", "license_plate", mode="before")
+    @classmethod
+    def normalize_text(cls, value, info):
+        if not isinstance(value, str):
+            raise ValueError("Expected a string")
+        value = " ".join(value.split())
+        if info.field_name == "license_plate":
+            value = value.upper().replace(" ", "").replace("-", "").replace(".", "")
+        return value
+
+
+class ParkingCheckInInput(ParkingCustomerInput):
+    arrived_at: datetime | None = None
+
+    @field_validator("arrived_at")
+    @classmethod
+    def arrival_timezone(cls, value):
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("arrived_at requires a timezone")
+        return value
+
+
+class ParkingSessionStatus(str, Enum):
+    RESERVED = "RESERVED"
+    PARKED = "PARKED"
+    COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+    EXPIRED = "EXPIRED"
+
+
+class ParkingSessionResponse(ORMBaseModel):
+    id: int
+    parking_slot_id: int
+    customer_name: str
+    phone_number: str
+    license_plate: str
+    status: ParkingSessionStatus
+    reserved_at: datetime | None
+    reservation_expires_at: datetime | None
+    arrived_at: datetime | None
+    departed_at: datetime | None
+    ended_at: datetime | None
+    cancelled_at: datetime | None
+    arrival_source: str | None
+    departure_source: str | None
+    created_by: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ParkingSessionListResponse(BaseModel):
+    data: list[ParkingSessionResponse]
+    meta: PaginationMeta

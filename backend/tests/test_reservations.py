@@ -2,137 +2,216 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Event
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import event, text
 
-from app import models
+from app import models, observation_runtime
 from app.parking_cache import parking_cache
 from app.routers.parking import apply_parking_status
-from app.schemas import AIParkingStatusRequest
-from app.services.parking_slots import transition_slot
-from app.statistics import aggregate_stats
+from app.schemas import AIParkingStatusRequest, ParkingCustomerInput
+from app.services.parking_slots import manual_action, expire_reservations, utc
 from app.websocket_manager import manager
+
+CUSTOMER = {"customer_name": " Nguyen Van A ", "phone_number": "0901234567", "license_plate": "51A-123.45"}
 
 
 @pytest.fixture
-def slot(client):
+def slot(client, observer):
     assert client.post("/api/ai/sync-slots", json={"camera_id": 7, "slots": [
         {"slot_code": "A1", "roi_coordinates": []}]}).status_code == 200
+    assert observer("EMPTY").status_code == 200
     return client.get("/api/ai/map").json()["slots"][0]["id"]
 
 
-def ai(client, status):
-    return client.post("/api/ai/parking-status", json={"camera_id": 7,
-        "parking_slots": [{"slot_code": "A1", "status": status}]})
+def reserve(client, headers, slot):
+    return client.post(f"/parking-slots/{slot}/reserve", headers=headers, json=CUSTOMER)
 
 
-@pytest.mark.parametrize("action", ["reserve", "cancel-reservation", "confirm-arrival"])
-def test_admin_only_and_missing_slot(client, database, headers, slot, action):
+def state(client):
+    return client.get("/api/ai/map").json()["slots"][0]["status"]
+
+
+def elapse(database, slot, minutes=11):
+    # Move a real booking window into the past while leaving current observations fresh.
+    with database() as db:
+        session = db.query(models.ParkingSession).filter_by(parking_slot_id=slot).one()
+        shift = timedelta(minutes=minutes)
+        session.reserved_at = utc(session.reserved_at) - shift
+        session.reservation_expires_at = utc(session.reservation_expires_at) - shift
+        if session.arrived_at:
+            session.arrived_at = utc(session.arrived_at) - shift
+        db.commit()
+
+
+@pytest.mark.parametrize("action", ["reserve", "check-in", "cancel-reservation", "confirm-arrival"])
+def test_admin_only(client, database, headers, slot, action):
     url = f"/parking-slots/{slot}/{action}"
-    assert client.post(url).status_code == 401
-    assert client.post(url, headers={"Authorization": "Bearer invalid"}).status_code == 401
+    assert client.post(url, json=CUSTOMER).status_code == 401
     with database() as db:
         admin = db.query(models.User).filter_by(username="admin").one()
-        role = models.Role(name="Operator", permissions=list(admin.role.permissions))
-        db.add(role)
-        admin.role = role
+        admin.role = models.Role(name="Operator", permissions=list(admin.role.permissions))
         db.commit()
-    # Even all permissions and an old JWT containing Administrator do not grant access.
-    assert client.post(url, headers=headers).status_code == 403
+    assert client.post(url, headers=headers, json=CUSTOMER).status_code == 403
+    assert client.get("/parking-sessions", headers=headers).status_code == 403
 
 
-@pytest.mark.parametrize("action", ["reserve", "cancel-reservation", "confirm-arrival"])
+@pytest.mark.parametrize("action", ["reserve", "check-in", "cancel-reservation", "confirm-arrival"])
 def test_missing_slot(client, headers, action):
-    assert client.post(f"/parking-slots/999/{action}", headers=headers).status_code == 404
+    assert client.post(f"/parking-slots/999/{action}", headers=headers, json=CUSTOMER).status_code == 404
 
 
-@pytest.mark.parametrize("initial", ["EMPTY", "RESERVED", "OCCUPIED", "UNKNOWN"])
-@pytest.mark.parametrize("action,expected,target", [
-    ("reserve", "EMPTY", "RESERVED"),
-    ("cancel-reservation", "RESERVED", "EMPTY"),
-    ("confirm-arrival", "RESERVED", "OCCUPIED"),
-])
-def test_transition_matrix(client, database, headers, slot, monkeypatch, initial, action, expected, target):
+def test_reservation_requires_customer_and_fresh_empty(client, headers):
+    client.post("/api/ai/sync-slots", json={"camera_id": 7, "slots": [{"slot_code": "A1", "roi_coordinates": []}]})
+    slot = client.get("/api/ai/map").json()["slots"][0]
+    assert slot["status"] is None and slot["observation_ready"] is False
+    assert client.post(f"/parking-slots/{slot['id']}/reserve", headers=headers).status_code == 422
+    assert reserve(client, headers, slot["id"]).status_code == 409
+    assert client.post(f"/parking-slots/{slot['id']}/reserve", headers=headers,
+                       json={**CUSTOMER, "customer_name": "  "}).status_code == 422
+
+
+def test_reservation_fields_and_customer_privacy(client, database, headers, slot, monkeypatch):
+    broadcast = AsyncMock()
+    monkeypatch.setattr(manager, "broadcast", broadcast)
+    result = reserve(client, headers, slot)
+    assert result.status_code == 200 and result.json()["status"] == "RESERVED"
+    assert reserve(client, headers, slot).status_code == 409
+    session_id = result.json()["active_session_id"]
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    assert detail["customer_name"] == "Nguyen Van A" and detail["license_plate"] == "51A12345"
+    assert detail["phone_number"] == "0901234567"
+    assert datetime.fromisoformat(detail["reservation_expires_at"]) - datetime.fromisoformat(detail["reserved_at"]) == timedelta(minutes=10)
+    assert detail["arrived_at"] is None
+    for call in broadcast.call_args_list:
+        assert not {"customer_name", "phone_number", "license_plate"} & call.args[0].keys()
+    assert "phone_number" not in str(client.get("/api/ai/map").json())
+    assert client.get("/parking-sessions").status_code == 401
+    assert client.get("/parking-sessions?license_plate=51A-123.45", headers=headers).json()["meta"]["total"] == 1
+
+
+def test_repeated_entry_within_window_then_departure_after_expiry(client, database, headers, observer, slot):
+    result = reserve(client, headers, slot).json()
+    session_id, deadline = result["active_session_id"], result["reservation_expires_at"]
+    assert observer("OCCUPIED").json()["changed_slots"] == 1
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    first_arrival = detail["arrived_at"]
+    assert state(client) == "OCCUPIED"
+    assert observer("EMPTY").status_code == 200
+    assert state(client) == "RESERVED"
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    assert detail["status"] == "PARKED" and detail["departed_at"] is None
+    assert observer("OCCUPIED").status_code == 200
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    assert detail["arrived_at"] == first_arrival and detail["reservation_expires_at"] == deadline
+    assert len(client.get(f"/parking-sessions/{session_id}/events", headers=headers).json()["data"]) == 4
+    elapse(database, slot)
+    assert expire_reservations(session_factory=database) == []
+    assert state(client) == "OCCUPIED"
+    assert observer("EMPTY").status_code == 200
+    assert state(client) == "EMPTY"
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    assert detail["status"] == "COMPLETED" and detail["departed_at"] is not None
+    assert observer("OCCUPIED").status_code == 200
+    assert state(client) == "UNKNOWN"
     with database() as db:
-        db.get(models.ParkingSlot, slot).status = initial
+        assert db.query(models.ParkingSession).count() == 1
+
+
+@pytest.mark.parametrize("visited", [False, True])
+def test_expiry_empty_without_new_ai_message(client, database, headers, observer, slot, visited):
+    session_id = reserve(client, headers, slot).json()["active_session_id"]
+    if visited:
+        observer("OCCUPIED")
+        observer("EMPTY")
+    elapse(database, slot)
+    messages = expire_reservations(session_factory=database)
+    assert any(item.get("new_status") == "EMPTY" for item in messages)
+    assert state(client) == "EMPTY"
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    assert detail["status"] == ("COMPLETED" if visited else "EXPIRED")
+    assert (detail["departed_at"] is not None) == visited
+    assert expire_reservations(session_factory=database) == []
+    observer("OCCUPIED")
+    assert state(client) == "UNKNOWN"
+
+
+def test_first_arrival_after_deadline_is_unknown(client, database, headers, observer, slot):
+    session_id = reserve(client, headers, slot).json()["active_session_id"]
+    elapse(database, slot)
+    assert observer("OCCUPIED").status_code == 200
+    assert state(client) == "UNKNOWN"
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    assert detail["status"] == "EXPIRED" and detail["arrived_at"] is None
+
+
+def test_exact_deadline(client, database, headers, slot):
+    session_id = reserve(client, headers, slot).json()["active_session_id"]
+    with database() as db:
+        session = db.get(models.ParkingSession, session_id)
+        deadline = utc(session.reservation_expires_at)
+        slot_obj = db.get(models.ParkingSlot, slot)
+        slot_obj.observed_at = deadline
         db.commit()
+    assert expire_reservations(now=deadline, session_factory=database)
+    assert state(client) == "EMPTY"
+
+
+def test_restart_and_missing_camera_do_not_release_hold(client, database, headers, observer, slot):
+    reserve(client, headers, slot)
+    elapse(database, slot)
+    observation_runtime.restart()
     parking_cache.invalidate()
-    before = client.get("/api/ai/map").json()
-    broadcast = AsyncMock()
-    monkeypatch.setattr(manager, "broadcast", broadcast)
-    response = client.post(f"/parking-slots/{slot}/{action}", headers=headers)
-    valid = initial == expected
-    assert response.status_code == (200 if valid else 409)
-    after = client.get("/api/ai/map").json()
+    assert expire_reservations(session_factory=database) == []
+    snapshot = client.get("/api/ai/map").json()
+    assert snapshot["slots"][0]["status"] == "RESERVED"
+    assert snapshot["slots"][0]["observation_ready"] is False
+    assert snapshot["summary"]["available_slots"] == 0
+    observer("EMPTY")
+    assert state(client) == "EMPTY"
+
+
+def test_stale_camera_metadata_expires_in_cache(client, database, slot, monkeypatch):
+    import app.routers.parking as parking
     with database() as db:
-        assert db.get(models.ParkingSlot, slot).status == (target if valid else initial)
-        events = db.query(models.ParkingEvent).all()
-        assert len(events) == int(valid)
-        if valid:
-            assert (events[0].old_status, events[0].new_status) == (expected, target)
-    if valid:
-        assert response.json()["status"] == target
-        assert after["slots"][0]["status"] == target
-        assert after["summary"][target.lower() + "_slots"] == 1
-        broadcast.assert_awaited_once()
-        message = broadcast.call_args.args[0]
-        assert (message["old_status"], message["new_status"]) == (expected, target)
-        assert message["confidence"] is None
-    else:
-        assert before == after
-        broadcast.assert_not_awaited()
+        observed = utc(db.get(models.ParkingSlot, slot).observed_at)
+    assert client.get("/api/ai/map").json()["slots"][0]["observation_ready"]
+    monkeypatch.setattr(parking, "now_utc", lambda: observed + timedelta(seconds=16))
+    snapshot = client.get("/api/ai/map").json()
+    assert not snapshot["slots"][0]["observation_ready"] and snapshot["summary"]["available_slots"] == 0
 
 
-def test_reserved_ai_skips_mixed_batch_and_sync_preserves_reservation(client, database, headers, slot, monkeypatch):
-    assert client.post(f"/parking-slots/{slot}/reserve", headers=headers).status_code == 200
-    broadcast = AsyncMock()
-    monkeypatch.setattr(manager, "broadcast", broadcast)
-    with database() as db:
-        original_updated_at = db.get(models.ParkingSlot, slot).updated_at
-    for status in ["EMPTY", "OCCUPIED", "UNKNOWN"]:
-        response = ai(client, status)
-        assert response.status_code == 200
-        assert response.json() == {"camera_id": 7, "received_slots": 1, "changed_slots": 0,
-            "unchanged_slots": 0, "unknown_slots": [], "reserved_skipped_slots": ["A1"]}
-    assert ai(client, "RESERVED").status_code == 422
-    broadcast.assert_not_awaited()
-    with database() as db:
-        assert db.get(models.ParkingSlot, slot).updated_at == original_updated_at
-        assert db.query(models.ParkingEvent).count() == 1
-    assert client.post("/api/ai/sync-slots", json={"camera_id": 7, "slots": [
-        {"slot_code": "A1", "roi_coordinates": [], "col": 2},
-        {"slot_code": "A2", "roi_coordinates": []},
-        {"slot_code": "A3", "roi_coordinates": []}]}).status_code == 200
-    mixed = client.post("/api/ai/parking-status", json={"camera_id": 7, "parking_slots": [
-        {"slot_code": "A1", "status": "EMPTY"}, {"slot_code": "A2", "status": "OCCUPIED"},
-        {"slot_code": "A3", "status": "EMPTY"}, {"slot_code": "missing", "status": "EMPTY"}]}).json()
-    assert mixed == {"camera_id": 7, "received_slots": 4, "changed_slots": 1,
-        "unchanged_slots": 1, "unknown_slots": ["missing"], "reserved_skipped_slots": ["A1"]}
-    broadcast.assert_awaited_once()
+def test_cancel_and_check_in_checkout(client, database, headers, observer, slot):
+    assert reserve(client, headers, slot).status_code == 200
+    assert client.post(f"/parking-slots/{slot}/cancel-reservation", headers=headers).status_code == 200
+    observer("OCCUPIED")
+    assert state(client) == "UNKNOWN"
+    result = client.post(f"/parking-slots/{slot}/check-in", headers=headers, json=CUSTOMER)
+    assert result.status_code == 200 and result.json()["status"] == "OCCUPIED"
+    session_id = result.json()["active_session_id"]
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    assert detail["arrival_source"] == "LATE_UNKNOWN" and detail["arrived_at"] is None
+    assert client.post(f"/parking-sessions/{session_id}/check-out", headers=headers).status_code == 409
+    observer("EMPTY")
+    assert state(client) == "EMPTY"
+    assert client.post(f"/parking-sessions/{session_id}/check-out", headers=headers).status_code == 409
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    assert detail["status"] == "COMPLETED"
 
 
-@pytest.mark.parametrize("action,next_status", [("cancel-reservation", "OCCUPIED"), ("confirm-arrival", "EMPTY")])
-def test_admin_websocket_then_ai_resumes(client, headers, tokens, slot, action, next_status):
-    with client.websocket_connect("/ws/parking", subprotocols=["parking", "bearer." + tokens["access_token"]]) as ws:
-        for operation, target in [("reserve", "RESERVED"), (action, "EMPTY" if action == "cancel-reservation" else "OCCUPIED")]:
-            assert client.post(f"/parking-slots/{slot}/{operation}", headers=headers).status_code == 200
-            message = ws.receive_json()
-            assert message["type"] == "SLOT_STATUS_CHANGED"
-            assert message["parking_slot_id"] == slot and message["new_status"] == target
-        assert ai(client, next_status).json()["changed_slots"] == 1
-        assert ws.receive_json()["new_status"] == next_status
+def test_checkout_ends_reentry_rights(client, headers, observer, slot):
+    session_id = reserve(client, headers, slot).json()["active_session_id"]
+    observer("OCCUPIED")
+    observer("EMPTY")
+    assert state(client) == "RESERVED"
+    assert client.post(f"/parking-sessions/{session_id}/check-out", headers=headers).status_code == 200
+    observer("OCCUPIED")
+    assert state(client) == "UNKNOWN"
 
 
-def test_ai_cannot_create_reserved(client, database, slot):
-    assert ai(client, "RESERVED").status_code == 422
-    with database() as db:
-        assert db.get(models.ParkingSlot, slot).status == "EMPTY"
-        assert db.query(models.ParkingEvent).count() == 0
-
-
-def test_failed_event_insert_rolls_back_and_does_not_publish(client, database, headers, slot, monkeypatch):
+def test_failed_event_insert_rolls_back_slot_session_and_broadcast(client, database, headers, slot, monkeypatch):
     broadcast = AsyncMock()
     monkeypatch.setattr(manager, "broadcast", broadcast)
     before = parking_cache._snapshot
@@ -141,74 +220,95 @@ def test_failed_event_insert_rolls_back_and_does_not_publish(client, database, h
     event.listen(models.ParkingEvent, "before_insert", fail_insert)
     try:
         with pytest.raises(RuntimeError, match="injected"):
-            client.post(f"/parking-slots/{slot}/reserve", headers=headers)
+            reserve(client, headers, slot)
     finally:
         event.remove(models.ParkingEvent, "before_insert", fail_insert)
     with database() as db:
         assert db.get(models.ParkingSlot, slot).status == "EMPTY"
-        assert db.query(models.ParkingEvent).count() == 0
+        assert db.query(models.ParkingSession).count() == 0
+        assert db.query(models.ParkingEvent).count() == 1  # initial EMPTY observation
     assert parking_cache._snapshot is before
     broadcast.assert_not_awaited()
 
 
-def test_statistics_rewinds_confirmation_to_reserved(client, database, headers, slot):
-    assert client.post(f"/parking-slots/{slot}/reserve", headers=headers).status_code == 200
-    assert client.post(f"/parking-slots/{slot}/confirm-arrival", headers=headers).status_code == 200
-    boundary = datetime(2026, 10, 7, 10, 30, tzinfo=timezone.utc)
+def test_old_frame_does_not_attach_to_new_booking(client, database, headers, observer, slot):
     with database() as db:
-        db.get(models.ParkingSlot, slot).created_at = boundary - timedelta(hours=1)
-        events = db.query(models.ParkingEvent).order_by(models.ParkingEvent.id).all()
-        events[0].event_time = boundary - timedelta(minutes=5)
-        events[1].event_time = boundary + timedelta(seconds=5)
-        db.commit()
-    aggregate_stats(now=boundary + timedelta(minutes=1), session_factory=database)
+        old = utc(db.get(models.ParkingSlot, slot).observed_at) + timedelta(microseconds=1)
+    reserve(client, headers, slot)
+    assert observer("OCCUPIED", observed_at=old).status_code == 200
+    assert state(client) == "RESERVED"
     with database() as db:
-        stat = db.query(models.ParkingStatistic).one()
-        assert (stat.total_count, stat.available_count, stat.occupied_count) == (1, 0, 0)
+        assert db.query(models.ParkingSession).one().arrived_at is None
 
 
-@pytest.mark.parametrize("first,second", [("admin", "ai"), ("ai", "admin"), ("admin", "admin")])
-def test_postgres_concurrent_transitions(database, client, slot, first, second):
-    engine = database.kw["bind"]
-    if engine.dialect.name != "postgresql":
+def test_postgres_concurrent_booking(database, client, slot):
+    if database.kw["bind"].dialect.name != "postgresql":
         pytest.skip("Row-lock concurrency requires PostgreSQL")
-    first_ready, release_first, second_attempted = Event(), Event(), Event()
-    def hold_before_commit(db):
-        first_ready.set()
-        assert release_first.wait(10), "Timed out waiting to release first transaction"
-    def worker(operation, hold):
+    ready, release, attempted = Event(), Event(), Event()
+    def worker(hold):
         with database() as db:
             db.execute(text("SET LOCAL lock_timeout = '8s'"))
+            admin = db.query(models.User).filter_by(username="admin").one()
             if hold:
-                event.listen(db, "before_commit", hold_before_commit, once=True)
+                def before_commit(_):
+                    ready.set()
+                    assert release.wait(10)
+                event.listen(db, "before_commit", before_commit, once=True)
             else:
-                # Observe the second transaction attempting its camera lock.
-                def observe(conn, cursor, statement, parameters, context, executemany):
+                def observe(conn, cursor, statement, params, context, many):
                     if "FOR UPDATE" in statement and "cameras" in statement:
-                        second_attempted.set()
+                        attempted.set()
                 event.listen(db.connection(), "before_cursor_execute", observe)
             try:
-                if operation == "admin":
-                    return transition_slot(db, slot, "EMPTY", "RESERVED")[0].status.value
-                result, _ = apply_parking_status(AIParkingStatusRequest(camera_id=7,
-                    parking_slots=[{"slot_code": "A1", "status": "OCCUPIED"}]), db)
-                return "skipped" if result.reserved_skipped_slots else "changed"
+                return manual_action(db, slot, "reserve", admin.id, ParkingCustomerInput(**CUSTOMER))[0].status.value
             except HTTPException as exc:
                 return exc.status_code
     with ThreadPoolExecutor(max_workers=2) as pool:
-        a = pool.submit(worker, first, True)
+        first = pool.submit(worker, True)
         try:
-            assert first_ready.wait(5)
-            b = pool.submit(worker, second, False)
-            assert second_attempted.wait(5)
-            assert not b.done()
+            assert ready.wait(5)
+            second = pool.submit(worker, False)
+            assert attempted.wait(5) and not second.done()
         finally:
-            release_first.set()
-        results = (a.result(timeout=10), b.result(timeout=10))
-    expected = {("admin", "ai"): ("RESERVED", "skipped"),
-                ("ai", "admin"): ("changed", 409),
-                ("admin", "admin"): ("RESERVED", 409)}
-    assert results == expected[first, second]
+            release.set()
+        assert (first.result(timeout=10), second.result(timeout=10)) == ("RESERVED", 409)
     with database() as db:
-        assert db.query(models.ParkingEvent).count() == 1
-        assert db.get(models.ParkingSlot, slot).status == ("OCCUPIED" if first == "ai" else "RESERVED")
+        assert db.query(models.ParkingSession).count() == 1
+
+
+def test_legacy_hold_is_not_silently_released_and_can_be_reconciled(client, database, headers, observer, slot):
+    with database() as db:
+        item = db.get(models.ParkingSlot, slot)
+        item.status, item.needs_reconciliation = "RESERVED", True
+        db.commit()
+    parking_cache.invalidate()
+    assert observer("EMPTY").status_code == 200
+    assert state(client) == "RESERVED"
+    assert reserve(client, headers, slot).status_code == 409
+    assert client.post(f"/parking-slots/{slot}/reconcile", headers=headers).status_code == 200
+    assert state(client) == "EMPTY"
+    assert reserve(client, headers, slot).status_code == 200
+
+
+def test_return_after_expiry_without_sweep_is_unknown(client, database, headers, observer, slot):
+    session_id = reserve(client, headers, slot).json()["active_session_id"]
+    observer("OCCUPIED")
+    observer("EMPTY")
+    assert state(client) == "RESERVED"
+    elapse(database, slot)
+    # Simulate a delayed expiry job: the next message already shows a returning car.
+    assert observer("OCCUPIED").status_code == 200
+    assert state(client) == "UNKNOWN"
+    detail = client.get(f"/parking-sessions/{session_id}", headers=headers).json()
+    assert detail["status"] == "COMPLETED" and detail["departed_at"] is not None
+
+
+def test_new_booking_replaces_expired_empty_hold_atomically(client, database, headers, slot):
+    first_id = reserve(client, headers, slot).json()["active_session_id"]
+    elapse(database, slot)
+    second = reserve(client, headers, slot)
+    assert second.status_code == 200
+    assert second.json()["active_session_id"] != first_id
+    with database() as db:
+        assert db.get(models.ParkingSession, first_id).status == "EXPIRED"
+        assert db.query(models.ParkingSession).filter(models.ParkingSession.status.in_(("RESERVED", "PARKED"))).count() == 1

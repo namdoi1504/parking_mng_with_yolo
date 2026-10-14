@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, gt=0)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, gt=0)
     STATS_SCHEDULER_ENABLED: bool = True
+    RESERVATION_SCHEDULER_ENABLED: bool = True
+    RESERVATION_SWEEP_SECONDS: int = Field(default=1, ge=1, le=60)
+    OBSERVATION_MAX_AGE_SECONDS: float = Field(default=15, gt=0, le=300)
     PARKING_CACHE_TTL_SECONDS: float = Field(default=30, ge=0, le=300)
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: [
         "http://localhost:5173", "http://127.0.0.1:5173",

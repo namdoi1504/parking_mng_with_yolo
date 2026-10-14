@@ -6,18 +6,32 @@ from starlette.concurrency import run_in_threadpool
 from .config import settings
 from .db import SessionLocal
 from .oauth2 import authenticate_token
-from .routers import auth, parking, users, roles, permissions, cameras, stats, stream, parking_slots
+from .routers import auth, parking, users, roles, permissions, cameras, stats, stream, parking_slots, parking_sessions
 from .statistics import aggregate_stats
+from .services.parking_slots import expire_reservations
+from . import observation_runtime
+from .parking_cache import parking_cache
 from .websocket_manager import manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    observation_runtime.restart()
+    parking_cache.invalidate()
     scheduler = None
-    if settings.STATS_SCHEDULER_ENABLED:
+    if settings.STATS_SCHEDULER_ENABLED or settings.RESERVATION_SCHEDULER_ENABLED:
         scheduler = AsyncIOScheduler(timezone="UTC")
+    if settings.STATS_SCHEDULER_ENABLED:
         scheduler.add_job(aggregate_stats, "cron", minute="*/15", id="parking-stats",
                           max_instances=1, coalesce=True, misfire_grace_time=60)
+    if settings.RESERVATION_SCHEDULER_ENABLED:
+        async def sweep():
+            messages = await run_in_threadpool(expire_reservations, session_factory=SessionLocal)
+            for message in messages:
+                await manager.broadcast(message)
+        scheduler.add_job(sweep, "interval", seconds=settings.RESERVATION_SWEEP_SECONDS,
+                          id="reservation-expiry", max_instances=1, coalesce=True)
+    if scheduler:
         scheduler.start()
     app.state.scheduler = scheduler
     try:
@@ -34,7 +48,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "ngrok-skip-browser-warning"],
 )
-for route in (auth, users, roles, permissions, cameras, parking, stats, stream, parking_slots):
+for route in (auth, users, roles, permissions, cameras, parking, stats, stream, parking_slots, parking_sessions):
     app.include_router(route.router)
 
 
