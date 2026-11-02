@@ -13,6 +13,7 @@ docker compose --env-file .env.docker up -d --build
 ```
 
 Open http://localhost:8080; API docs: http://localhost:8000/docs.
+Database clients: [DBeaver / pgAdmin connection](docs/database-access.md) at `127.0.0.1:5433`.
 The existing `parking-mng` database is used for all video operations. Seeking
 resets that camera's sessions/events/statistics; see the video API guide.
 
