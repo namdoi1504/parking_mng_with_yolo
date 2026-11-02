@@ -2,12 +2,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { apiFetch, getClaims } from "../api";
+import { apiFetch, getClaims } from "../services/api";
 import { canVisit } from "../components";
 import { SessionsPage } from "./SessionsPage";
-import { demoMap } from "../demo";
-vi.mock("../api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(() => ({ role: "Administrator", permissions: [] })), isDemoMode: () => false }));
-vi.mock("../useParkingMap", () => ({ useParkingMap: () => ({ data: demoMap, error: "", load: vi.fn(), applySlot: vi.fn() }) }));
+import { demoMap } from "../services/demo";
+vi.mock("../services/api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(() => ({ role: "Administrator", permissions: [] })), isDemoMode: () => false }));
+vi.mock("../hooks/useParkingMap", () => ({ useParkingMap: () => ({ data: demoMap, error: "", load: vi.fn(), applySlot: vi.fn() }) }));
 beforeEach(() => vi.mocked(apiFetch).mockResolvedValue({ data: [], meta: { page: 1, page_size: 20, total: 0, total_pages: 0 } }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe("session lookup", () => {

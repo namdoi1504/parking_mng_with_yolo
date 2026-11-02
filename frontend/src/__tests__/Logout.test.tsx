@@ -2,9 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { apiFetch, clearTokens } from "./api";
-import { AppShell } from "./components";
-vi.mock("./api", () => ({ apiFetch: vi.fn(), clearTokens: vi.fn(), getClaims: () => ({ user_id: 1, role: "Administrator", permissions: [] }), isDemoMode: () => false }));
+import { apiFetch, clearTokens } from "../services/api";
+import { AppShell } from "../components";
+vi.mock("../services/api", () => ({ apiFetch: vi.fn(), clearTokens: vi.fn(), getClaims: () => ({ user_id: 1, role: "Administrator", permissions: [] }), isDemoMode: () => false }));
 beforeEach(() => vi.mocked(apiFetch).mockResolvedValue(undefined));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 function mount() {

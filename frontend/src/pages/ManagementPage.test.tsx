@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ManagementPage } from "./ManagementPage";
-import { apiFetch, getClaims } from "../api";
-import { demoCameras, demoRoles, demoUsers } from "../demo";
-vi.mock("../api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false, clearTokens: vi.fn() }));
+import { apiFetch, getClaims } from "../services/api";
+import { demoCameras, demoRoles, demoUsers } from "../services/demo";
+vi.mock("../services/api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false, clearTokens: vi.fn() }));
 beforeEach(() => {
   vi.mocked(getClaims).mockReturnValue({ sub: "test", user_id: 99, role: "Admin", exp: 9999999999,
     permissions: ["user:view", "user:manage", "camera:view", "camera:manage", "role:manage"] });

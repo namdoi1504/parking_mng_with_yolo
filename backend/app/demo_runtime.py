@@ -50,6 +50,10 @@ class DemoClock:
             self.seeking = True
             self.lease_until = 0.0
 
+    def clear_seek(self):
+        with self.lock:
+            self.seeking = False
+
     def offline(self):
         with self.lock:
             self.lease_until = 0.0
@@ -78,7 +82,8 @@ class DemoClock:
             if pause_id and pause_id != self.completed_pause_id:
                 paused = stamp(data["paused_at"])
                 resumed = stamp(data["resumed_at"]) if data.get("resumed_at") else None
-                if paused > wall_now() or (resumed and resumed < paused):
+                tolerance = timedelta(seconds=2)
+                if paused > wall_now() + tolerance or (resumed and resumed < paused - tolerance):
                     raise ValueError("Invalid pause timestamps")
                 self.pause_id, self.paused_wall = pause_id, paused
                 if resumed:
@@ -87,6 +92,8 @@ class DemoClock:
                     self.completed_pause_id = pause_id
             self.playback = state
             self.lease_until = monotonic() + 6.0
+            if data.get("seek_ready", True):
+                self.seeking = False
 
     def observation_time(self, observed_at, run_id):
         with self.lock:

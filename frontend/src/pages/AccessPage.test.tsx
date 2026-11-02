@@ -2,11 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { apiFetch, isDemoMode } from "../api";
-import { demoPermissions, demoRoles } from "../demo";
+import { apiFetch, isDemoMode } from "../services/api";
+import { demoPermissions, demoRoles } from "../services/demo";
 import { AccessPage } from "./AccessPage";
 
-vi.mock("../api", () => ({ apiFetch: vi.fn(), getClaims: () => ({ user_id: 99, role: "Administrator", permissions: ["role:manage"] }), isDemoMode: vi.fn(), clearTokens: vi.fn() }));
+vi.mock("../services/api", () => ({ apiFetch: vi.fn(), getClaims: () => ({ user_id: 99, role: "Administrator", permissions: ["role:manage"] }), isDemoMode: vi.fn(), clearTokens: vi.fn() }));
 beforeEach(() => {
   vi.mocked(isDemoMode).mockReturnValue(false);
   vi.spyOn(window, "confirm").mockReturnValue(true);

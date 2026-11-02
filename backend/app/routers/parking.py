@@ -190,7 +190,7 @@ def apply_parking_status(data: AIParkingStatusRequest, db: Session):
         if data.sequence <= camera.ai_sequence:
             raise HTTPException(409, "Duplicate or out-of-order observation")
         age = (wall_now() - observed_at).total_seconds()
-        if age < 0 or age > settings.OBSERVATION_MAX_AGE_SECONDS:
+        if age < -2.0 or age > settings.OBSERVATION_MAX_AGE_SECONDS:
             raise HTTPException(409, "Observation is stale or in the future")
         if settings.VIDEO_DEMO_ENABLED:
             if data.camera_id != settings.VIDEO_DEMO_CAMERA_ID:
@@ -256,7 +256,7 @@ def get_parking_map(db: Session = Depends(get_db)):
     now = now_utc()
     slots = [item.model_copy(update={"observation_ready": bool(item.observation_ready and item.observed_at
              and (not settings.VIDEO_DEMO_ENABLED or demo_clock.healthy())
-             and 0 <= (now - utc(item.observed_at)).total_seconds() <= settings.OBSERVATION_MAX_AGE_SECONDS)})
+             and -2.0 <= (now - utc(item.observed_at)).total_seconds() <= settings.OBSERVATION_MAX_AGE_SECONDS)})
              for item in snapshot.slots]
     available = sum(item.status == "EMPTY" and item.observation_ready and item.active_session_id is None and not item.needs_reconciliation
                     for item in slots)

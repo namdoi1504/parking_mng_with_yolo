@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Search, UserRound } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { apiFetch, isDemoMode, saveTokens } from "../api";
+import { apiFetch, isDemoMode, saveTokens } from "../services/api";
 import "./LoginPage.css";
 
 export function LoginPage() {

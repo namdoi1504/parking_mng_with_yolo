@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Camera, Pencil, Plus, RefreshCw, Search, Trash2, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { apiFetch, clearTokens, getClaims, isDemoMode } from "../api";
+import { apiFetch, clearTokens, getClaims, isDemoMode } from "../services/api";
 import { AppShell, EmptyState, InlineNotice } from "../components";
-import { demoCameras, demoRoles, demoUsers } from "../demo";
+import { demoCameras, demoRoles, demoUsers } from "../services/demo";
 import type { Camera as CameraType, Page, Role, User } from "../types";
 
 type Draft = { id?: number; full_name: string; username: string; password: string; role_id: number; status: string; name: string; source_type: string; source_url: string };

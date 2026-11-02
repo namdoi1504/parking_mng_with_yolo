@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiFetch, clearTokens, getAccessToken, saveTokens } from "./api";
+import { apiFetch, clearTokens, getAccessToken, saveTokens } from "../services/api";
 
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
 afterEach(() => { vi.unstubAllGlobals(); });
