@@ -209,7 +209,7 @@ def test_observation_identity_order_age_and_timezone(client, database, observer)
     assert observer("EMPTY", sequence=1).status_code == 200
 
 
-def test_large_camera_batch_uses_bounded_session_reads_and_updates(client, database, observer):
+def test_large_camera_batch_uses_bounded_session_reads_and_updates(client, database, observer, tokens):
     from sqlalchemy import event
     codes = [f"slot-{index}" for index in range(470)]
     assert client.post("/api/ai/sync-slots", json={"camera_id": 7,
@@ -220,13 +220,21 @@ def test_large_camera_batch_uses_bounded_session_reads_and_updates(client, datab
         queries.append(statement)
     event.listen(engine, "before_cursor_execute", record)
     try:
-        response = observer("EMPTY", slots=[{"slot_code": code,
-                    "status": "OCCUPIED" if index % 2 else "EMPTY"} for index, code in enumerate(codes)])
+        with client.websocket_connect("/ws/parking", subprotocols=[
+                "parking", "bearer." + tokens["access_token"]]) as ws:
+            # Exclude the initial WebSocket authentication from the update query count.
+            queries.clear()
+            response = observer("EMPTY", slots=[{"slot_code": code,
+                        "status": "OCCUPIED" if index % 2 else "EMPTY"} for index, code in enumerate(codes)])
+            messages = [ws.receive_json() for _ in codes]
     finally:
         event.remove(engine, "before_cursor_execute", record)
     assert response.status_code == 200 and response.json()["changed_slots"] == 470
     session_reads = [query for query in queries if query.lstrip().upper().startswith("SELECT") and "FROM parking_sessions" in query]
     slot_updates = [query for query in queries if query.lstrip().upper().startswith("UPDATE parking_slots")]
     assert len(session_reads) == 1 and len(slot_updates) <= 4
+    user_reads = [query for query in queries if query.lstrip().upper().startswith("SELECT") and "FROM users" in query]
+    assert len(user_reads) == 1
+    assert len(messages) == 470 and all(message["type"] == "SLOT_STATUS_CHANGED" for message in messages)
     summary = client.get("/api/ai/summary").json()
     assert summary["empty_slots"] == summary["unknown_slots"] == 235

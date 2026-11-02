@@ -76,6 +76,7 @@ def sync_slots_with_backend(config: list[dict], camera_id: int) -> bool:
             f"{BACKEND_URL}/api/ai/sync-slots",
             json=payload,
             timeout=30.0,
+            trust_env=False,  # This local service must not use machine-wide HTTP proxies.
         )
         if resp.status_code == 200:
             r = resp.json()
@@ -171,11 +172,14 @@ def send_to_backend(slot_statuses: list[dict], camera_id: int, observed_at: str,
         "observed_at": observed_at,
         "parking_slots": slot_statuses,
     }
+    url = f"{BACKEND_URL}/api/ai/parking-status"
+    started = time.perf_counter()
     try:
         resp = httpx.post(
-            f"{BACKEND_URL}/api/ai/parking-status",
+            url,
             json=payload,
-            timeout=15.0,   # increased from 3s to 15s
+            timeout=httpx.Timeout(15.0, connect=5.0),
+            trust_env=False,
         )
         if resp.status_code == 200:
             if STREAM_STORE:
@@ -184,12 +188,21 @@ def send_to_backend(slot_statuses: list[dict], camera_id: int, observed_at: str,
             print(
                 f"  Send {result['received_slots']} slot | "
                 f"changed={result['changed_slots']} | "
-                f"unknown={len(result['unknown_slots'])}"
+                f"unknown={len(result['unknown_slots'])} | "
+                f"backend={time.perf_counter() - started:.2f}s"
             )
         else:
             if STREAM_STORE:
                 STREAM_STORE.sync_result(False)
             print(f"  Backend trả {resp.status_code}: {resp.text[:100]}")
+    except httpx.TimeoutException as error:
+        if STREAM_STORE:
+            STREAM_STORE.sync_result(False)
+        print(
+            f"  Backend {type(error).__name__} after {time.perf_counter() - started:.2f}s: "
+            f"POST {url} | slots={len(slot_statuses)} sequence={sequence}. "
+            "Video continues; the next confirmed observation will be sent."
+        )
     except httpx.ConnectError:
         if STREAM_STORE:
             STREAM_STORE.sync_result(False)

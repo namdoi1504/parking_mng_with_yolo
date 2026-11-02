@@ -19,3 +19,4 @@ datasets/parking car result.avi
 datasets/sorted_preview.png
 datasets/sorted_bounding_boxes.json
 datasets/slots_config.json
+cars_best_old.pt

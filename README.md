@@ -3,6 +3,8 @@
 A parking monitoring system using YOLO for car detection, FastAPI/PostgreSQL for the backend, and React/TypeScript for the frontend.
 The detector locates cars; polygon-based regions of interest (ROIs) determine whether parking spaces are occupied.
 
+Docker Compose deployment (Vietnamese): [PostgreSQL, backend, frontend and CPU AI](docs/docker-deployment.md).
+
 ## 1. Project Structure
 
 | Location | Purpose |

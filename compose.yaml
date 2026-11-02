@@ -1,0 +1,96 @@
+name: parking-mng
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - parking_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_HOSTNAME: db
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: ${POSTGRES_DB}
+      DATABASE_USERNAME: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
+      STATS_SCHEDULER_ENABLED: "true"
+      RESERVATION_SCHEDULER_ENABLED: "true"
+      CORS_ORIGINS: '["http://localhost:${FRONTEND_PORT:-8080}","http://127.0.0.1:${FRONTEND_PORT:-8080}","https://parking-mng-with-yolo.pages.dev"]'
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+
+  ai:
+    profiles: ["ai"]
+    build:
+      context: .
+      dockerfile: AI/Dockerfile
+    network_mode: "service:backend"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ./AI/datasets/cars_best.pt
+        target: /app/AI/datasets/cars_best.pt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./AI/datasets/parking_car.mp4
+        target: /app/AI/datasets/parking_car.mp4
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./AI/datasets/slots_config.json
+        target: /app/AI/datasets/slots_config.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./AI/datasets/sorted_bounding_boxes.json
+        target: /app/AI/datasets/sorted_bounding_boxes.json
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      VIDEO_PLAYBACK_SPEED: ${VIDEO_PLAYBACK_SPEED:-0.3333333333}
+    init: true
+
+volumes:
+  parking_data:

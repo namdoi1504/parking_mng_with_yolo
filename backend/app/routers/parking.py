@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 from uuid import UUID, uuid4
+import logging
+from time import perf_counter
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -22,6 +24,7 @@ from ..websocket_manager import manager
 from .common import commit, get_or_404, lock_camera_creation, advance_camera_sequence
 
 router = APIRouter(prefix="/api/ai", tags=["AI Engine"])
+logger = logging.getLogger(__name__)
 
 
 class SlotSyncItem(BaseModel):
@@ -156,10 +159,18 @@ async def receive_parking_status(
     Endpoint dành riêng cho AI engine (YOLO).
     Nhận danh sách trạng thái slot → cập nhật DB → broadcast WebSocket đến FE.
     """
+    started = perf_counter()
     result, ws_messages = await run_in_threadpool(apply_parking_status, data, db)
+    committed = perf_counter()
     # Publish only after the transaction succeeded, on the application's event loop.
-    for msg in ws_messages:
-        await manager.broadcast(msg)
+    await manager.broadcast_many(ws_messages)
+    finished = perf_counter()
+    if finished - started >= 3:
+        logger.warning(
+            "Slow AI update camera=%s slots=%s messages=%s database=%.2fs broadcast=%.2fs viewers=%s",
+            data.camera_id, len(data.parking_slots), len(ws_messages), committed - started,
+            finished - committed, manager.connection_count,
+        )
     return result
 
 

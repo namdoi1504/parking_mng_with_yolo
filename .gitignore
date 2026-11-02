@@ -26,6 +26,8 @@ BAO_CAO_CHUONG_4.docx
 .env
 .env.*
 !.env.example
+!.env.docker.example
+*.dump
 *.mp4
 *.avi
 *.mov
@@ -43,3 +45,4 @@ __pycache__/
 /frontend/preview-*.jpg
 /AI/preview-*.jpg
 /.idea/
+/docs/docker-deployment.md

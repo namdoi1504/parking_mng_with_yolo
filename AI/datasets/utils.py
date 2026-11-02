@@ -87,8 +87,15 @@ def cut_5_images(video_path, output_dir):
         cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
         ret, frame = cap.read()
         if ret:
-            filename = f"{output_dir}/stage{i + 1}_t{int(t)}s.jpg"
+            filename = f"{output_dir}/stage_news{i + 1}_t{int(t)}s.jpg"
             cv2.imwrite(filename, frame)
             print(f"Đã lưu {filename}")
 
     cap.release()
+
+
+if __name__ == "__main__":
+    cut_5_images(
+        r"D:\Admin\Python\Parking_mng\AI\datasets\carPark_news.mp4",
+        r"D:\Admin\Python\Parking_mng\AI\datasets\images_frame",
+    )

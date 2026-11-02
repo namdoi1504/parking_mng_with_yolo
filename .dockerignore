@@ -1,0 +1,5 @@
+**
+!AI/
+!AI/requirements-docker.txt
+!AI/datasets/
+!AI/datasets/*.py

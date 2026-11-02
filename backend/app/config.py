@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, gt=0)
     STATS_SCHEDULER_ENABLED: bool = True
     RESERVATION_SCHEDULER_ENABLED: bool = True
+    # Delay between the end of a reservation sweep and the next sweep.
     RESERVATION_SWEEP_SECONDS: int = Field(default=1, ge=1, le=60)
     OBSERVATION_MAX_AGE_SECONDS: float = Field(default=15, gt=0, le=300)
     PARKING_CACHE_TTL_SECONDS: float = Field(default=30, ge=0, le=300)

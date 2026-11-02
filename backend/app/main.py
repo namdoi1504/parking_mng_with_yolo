@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,24 +21,39 @@ async def lifespan(app: FastAPI):
     observation_runtime.restart()
     parking_cache.invalidate()
     scheduler = None
+    stopping = False
     if settings.STATS_SCHEDULER_ENABLED or settings.RESERVATION_SCHEDULER_ENABLED:
         scheduler = AsyncIOScheduler(timezone="UTC")
     if settings.STATS_SCHEDULER_ENABLED:
         scheduler.add_job(aggregate_stats, "cron", minute="*/15", id="parking-stats",
                           max_instances=1, coalesce=True, misfire_grace_time=60)
     if settings.RESERVATION_SCHEDULER_ENABLED:
+        def schedule_sweep():
+            scheduler.add_job(
+                sweep, "date",
+                run_date=datetime.now(timezone.utc) + timedelta(seconds=settings.RESERVATION_SWEEP_SECONDS),
+                id="reservation-expiry", max_instances=1, replace_existing=True,
+            )
+
         async def sweep():
             messages = await run_in_threadpool(expire_reservations, session_factory=SessionLocal)
-            for message in messages:
-                await manager.broadcast(message)
-        scheduler.add_job(sweep, "interval", seconds=settings.RESERVATION_SWEEP_SECONDS,
-                          id="reservation-expiry", max_instances=1, coalesce=True)
+            await manager.broadcast_many(messages)
+
+        def sweep_finished(event):
+            # The executor releases the running instance before dispatching this event.
+            # Start the delay here so slow queries, broadcasts and error logging cannot overlap runs.
+            if event.job_id == "reservation-expiry" and not stopping:
+                schedule_sweep()
+
+        scheduler.add_listener(sweep_finished, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MISSED)
+        schedule_sweep()
     if scheduler:
         scheduler.start()
     app.state.scheduler = scheduler
     try:
         yield
     finally:
+        stopping = True
         if scheduler:
             scheduler.shutdown(wait=False)
 

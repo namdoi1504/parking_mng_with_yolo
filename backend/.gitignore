@@ -6,3 +6,7 @@ README.md
 RESERVATIONS.md
 RESERVATION.md
 BACKEND_AI_IMPLEMENTATION.md
+
+
+.env.docker
+*.dump
