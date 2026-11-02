@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiFetch, getAccessToken, getClaims, isDemoMode } from "./api";
-import { demoMap } from "./demo";
-import { isScenarioMode } from "./scenarioMode";
-import type { ConnectionState } from "./components";
-import { summarize } from "./parking";
-import type { ParkingMap, ParkingSlot, SlotStatus } from "./types";
+import { apiFetch, getAccessToken, getClaims, isDemoMode } from "../services/api";
+import { demoMap } from "../services/demo";
+import { isScenarioMode } from "../services/scenarioMode";
+import type { ConnectionState } from "../components";
+import { summarize } from "../services/parking";
+import type { ParkingMap, ParkingSlot, SlotStatus } from "../types";
 
 export interface ParkingEvent { time: string; code: string; status: SlotStatus | null; camera: number }
 export const PARKING_POLL_MS = 5000;

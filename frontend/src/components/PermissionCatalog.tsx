@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
-import { apiFetch, isDemoMode } from "./api";
-import { EmptyState, InlineNotice } from "./components";
-import type { Permission } from "./types";
+import { apiFetch, isDemoMode } from "../services/api";
+import { EmptyState, InlineNotice } from ".";
+import type { Permission } from "../types";
 
 type Draft = { id?: number; name: string; code: string; module: string; description: string };
 export function PermissionCatalog({ permissions, onSaved }: { permissions: Permission[]; onSaved: (permission: Permission) => void }) {

@@ -381,8 +381,9 @@ def run_agent(show_window: bool = SHOW_WINDOW, playback_speed: float = VIDEO_PLA
                     STREAM_STORE.metadata["run_id"] = AGENT_RUN_ID
                 STREAM_STORE.sync_result(False)
             publish_frozen(sample, current)
+            now_iso = datetime.now(timezone.utc).isoformat()
             return {"run_id": AGENT_RUN_ID, "frame_id": sample.sequence,
-                    "observed_at": datetime.fromtimestamp(sample.captured_at + wall_offset, timezone.utc).isoformat(),
+                    "observed_at": now_iso,
                     "parking_slots": current["statuses"]}
 
     control = PlaybackControl(video, pause_frame, resume_frames, enabled=VIDEO_DEMO_ENABLED, on_seek=seek_frame)

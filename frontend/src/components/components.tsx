@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { BarChart3, Camera, CarFront, Check, ChevronRight, CircleGauge, Info, LockKeyhole, LogOut, Map, Menu, ShieldCheck, TriangleAlert, Users, X } from "lucide-react";
-import { apiFetch, clearTokens, getClaims, isDemoMode } from "./api";
-import type { ParkingSlot, ParkingSummary, SlotStatus } from "./types";
-import { isScenarioMode, workspacePath } from "./scenarioMode";
+import { apiFetch, clearTokens, getClaims, isDemoMode } from "../services/api";
+import type { ParkingSlot, ParkingSummary, SlotStatus } from "../types";
+import { isScenarioMode, workspacePath } from "../services/scenarioMode";
 
 const nav: { to: string; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { to: "/monitor", label: "Giám sát", icon: Camera },
@@ -110,7 +110,7 @@ export function SummaryStrip({ summary, scopeLabel = "Trong camera đang chọn"
   const rows: [string, number, string, ComponentType<{ size?: number; "aria-hidden"?: boolean }>][] = [
     ["Tổng vị trí", summary.total_slots, "total", Map], ["Có thể giữ chỗ", summary.available_slots ?? 0, "EMPTY", Check],
     ["Đã đỗ", summary.occupied_slots, "OCCUPIED", CarFront], ["Đã giữ chỗ", summary.reserved_slots, "RESERVED", LockKeyhole],
-    ["Xe chưa đăng ký", summary.unknown_slots, "UNKNOWN", TriangleAlert], ["Chờ nhận diện", summary.uninitialized_slots ?? 0, "UNINITIALIZED", CircleGauge]
+    ["Xe chưa đăng ký", summary.unknown_slots, "UNKNOWN", TriangleAlert]
   ];
   return <div className="summary-strip" aria-label="Tổng hợp trạng thái">
     {rows.map(([label, value, key, Icon]) => <div className={`summary-item status-${key}`} key={key}><span className="summary-icon"><Icon size={18} aria-hidden /></span><span className="summary-label">{label}</span><strong>{value}</strong><small>{key === "total" ? scopeLabel : key === "EMPTY" ? `${value}/${summary.empty_slots} ô trống đủ điều kiện` : `${summary.total_slots ? Math.round(value / summary.total_slots * 100) : 0}% tổng số ô`}</small></div>)}

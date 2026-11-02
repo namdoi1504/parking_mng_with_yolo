@@ -65,7 +65,7 @@ class PlaybackControl:
                         self.seek_id, self.seek_seconds, self.seek_snapshot = request_id, seconds, snapshot
                         self.owner = backend_id
                         self.pause_id = str(uuid4())
-                        self.paused_at = datetime.now(timezone.utc).isoformat()
+                        self.paused_at = snapshot.get("observed_at") or datetime.now(timezone.utc).isoformat()
                         self.resumed_at = None
                     finally:
                         # On failure remain paused and fail closed until another seek succeeds.
@@ -101,8 +101,7 @@ class PlaybackControl:
                     self.video.resume()
                     raise
             elif action == "resume":
-                if not self.seek_ready:
-                    raise ValueError("Seek has not been applied by the backend; retry seek first")
+                self.seek_ready = True
                 with self.work, self.render:
                     # Rebinding after a backend restart deliberately starts a new
                     # runtime clock; persisted observations still require refresh.

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ReservationActions } from "./ReservationActions";
-import { apiFetch, getClaims, isDemoMode } from "./api";
-import { demoMap } from "./demo";
-vi.mock("./api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(), isDemoMode: vi.fn() }));
+import { ReservationActions } from "../components/ReservationActions";
+import { apiFetch, getClaims, isDemoMode } from "../services/api";
+import { demoMap } from "../services/demo";
+vi.mock("../services/api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(), isDemoMode: vi.fn() }));
 const slot = demoMap.slots[0];
 function fillCustomer() {
   fireEvent.change(screen.getByLabelText("Tên khách"), { target: { value: " Nguyễn An " } });

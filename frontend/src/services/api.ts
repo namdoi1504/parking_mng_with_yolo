@@ -1,4 +1,4 @@
-import type { AuthClaims } from "./types";
+import type { AuthClaims } from "../types";
 import { isScenarioMode } from "./scenarioMode";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");

@@ -1,11 +1,11 @@
-import { ZoneOverview } from "../ZoneOverview";
-import { buildZones } from "../zones";
-import { isAvailable } from "../parking";
+import { ZoneOverview } from "../components/ZoneOverview";
+import { buildZones } from "../services/zones";
+import { isAvailable } from "../services/parking";
 import { useState } from "react";
 import { ArrowRight, CarFront, List, Map, RefreshCw } from "lucide-react";
 import { AppShell, EmptyState, ParkingGrid } from "../components";
-import { ParkingMap, SlotDetail } from "../ParkingMap";
-import { connectionLabels, useParkingMap } from "../useParkingMap";
+import { ParkingMap, SlotDetail } from "../components/ParkingMap";
+import { connectionLabels, useParkingMap } from "../hooks/useParkingMap";
 
 export function LookupPage() {
   const { data, error, busy, load, connection } = useParkingMap();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ConnectionBadge } from "./components";
+import { ConnectionBadge } from "../components";
 
 describe("connection indicator", () => {
   it("uses the success state only when connected", () => {

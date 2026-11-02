@@ -2,10 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { apiFetch, getClaims } from "../api";
+import { apiFetch, getClaims } from "../services/api";
 import { reportDate, StatisticsPage } from "./StatisticsPage";
 
-vi.mock("../api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false, clearTokens: vi.fn() }));
+vi.mock("../services/api", () => ({ apiFetch: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false, clearTokens: vi.fn() }));
 const mount = () => render(<MemoryRouter initialEntries={["/statistics"]}><StatisticsPage /></MemoryRouter>);
 beforeEach(() => {
   vi.mocked(getClaims).mockReturnValue({ sub: "99", user_id: 99, role: "Reporter", permissions: ["report:view"], exp: 9999999999 });

@@ -1,4 +1,4 @@
-import type { Point, ParkingSlot } from "./types";
+import type { Point, ParkingSlot } from "../types";
 
 // Temporary image-space calibration for parking_car.mp4 (1920 x 1080).
 // Gate directions follow the user's black arrows; other aisles are provisional.
