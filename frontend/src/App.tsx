@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { getAccessToken, isDemoMode } from "./api";
+import { getAccessToken, isDemoMode } from "./services/api";
 import { LoginPage } from "./pages/LoginPage";
 import { MonitorPage } from "./pages/MonitorPage";
 import { MapPage } from "./pages/MapPage";

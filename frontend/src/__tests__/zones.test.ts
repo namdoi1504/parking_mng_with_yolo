@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import config from "../../AI/datasets/slots_config.json";
-import { buildAxisGroups, buildZones, zoneRange } from "./zones";
-import { demoMap } from "./demo";
-import type { ParkingSlot } from "./types";
+import config from "../../../AI/datasets/slots_config.json";
+import { buildAxisGroups, buildZones, zoneRange } from "../services/zones";
+import { demoMap } from "../services/demo";
+import type { ParkingSlot } from "../types";
 const slot = (id: number, row: number, col: number, camera = 1): ParkingSlot => ({ ...demoMap.slots[0], id, row, col, camera_id: camera });
 const actualSlots: ParkingSlot[] = config.map((item) => ({ ...slot(item.index + 1, item.row, item.col, item.camera_id), slot_code: item.slot_code, roi_coordinates: item.points.map(([x, y]) => ({ x, y })) }));
 describe("physical parking zones", () => {
@@ -17,22 +17,28 @@ describe("physical parking zones", () => {
   });
   it("keeps both complete rows around each island together without slicing row indices", () => {
     const zones = buildZones(actualSlots);
-    expect(zones).toHaveLength(13);
-    expect(zones.map((zone) => zone.slots.length)).toEqual([24, 33, 32, 38, 43, 58, 60, 56, 47, 48, 21, 3, 7]);
+    expect(zones).toHaveLength(11);
+    expect(zones.map((zone) => zone.name)).toEqual(["Khu A1", "Khu A2", "Khu A3", "Khu B1", "Khu B2", "Khu B3", "Khu C1", "Khu C2", "Khu C3", "Khu D1", "Khu D2"]);
+    expect(zones.map((zone) => zone.slots.length)).toEqual([31, 48, 47, 56, 60, 58, 43, 38, 32, 33, 24]);
     for (const columns of [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11], [12, 13, 14], [15, 16]]) {
       const members = actualSlots.filter((item) => columns.includes(item.col));
       const group = zones.find((zone) => zone.slots.some((item) => item.id === members[0].id))!;
       expect(group.slots.map((item) => item.id).sort((a, b) => a - b)).toEqual(members.map((item) => item.id).sort((a, b) => a - b));
     }
     expect(zones[5].slots.some((item) => item.row === 30)).toBe(true);
-    expect(zoneRange(zones[0])).toContain("Hai dãy cùng đảo cây");
+    expect(zoneRange(zones[1])).toContain("Hai dãy cùng đảo cây");
   });
   it("keeps horizontal gate bays separate from island rows sharing the same col", () => {
     const zones = buildZones(actualSlots);
     const containing = (code: string) => zones.find((zone) => zone.slots.some((item) => item.slot_code === code))!;
-    expect(containing("368").id).toBe("1:site:12"); expect(containing("370").id).toBe("1:site:9");
-    expect(containing("395").id).toBe("1:site:13"); expect(containing("397").id).toBe("1:site:10");
-    expect(containing("450").kind).toBe("edge"); expect(containing("449").kind).toBe("gate");
+    expect(containing("450").id).toBe("1:site:A1");
+    expect(containing("368").id).toBe("1:site:A1");
+    expect(containing("395").id).toBe("1:site:A1");
+    expect(containing("449").id).toBe("1:site:A1");
+    expect(containing("397").id).toBe("1:site:A2");
+    expect(containing("370").id).toBe("1:site:A3");
+    expect(containing("450").kind).toBe("gate");
+    expect(containing("397").kind).toBe("island");
   });
   it("covers every real space once with stable IDs regardless of status or input order", () => {
     const zones = buildZones(actualSlots), ids = zones.flatMap((zone) => zone.slots.map((item) => item.id));

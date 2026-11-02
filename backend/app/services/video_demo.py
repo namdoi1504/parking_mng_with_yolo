@@ -58,7 +58,9 @@ def exchange(action=None, **parameters):
 
 def control(action):
     with commands:
-        if demo_clock.seeking:
+        if action == "resume":
+            demo_clock.clear_seek()
+        elif demo_clock.seeking:
             raise HTTPException(409, "A seek is incomplete; retry seek before pause/resume")
         return exchange(action)
 

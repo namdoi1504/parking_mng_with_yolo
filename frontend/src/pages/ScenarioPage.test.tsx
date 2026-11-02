@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ScenarioPage, type ScenarioState } from "./ScenarioPage";
-import { apiResponse, saveTokens } from "../api";
+import { apiResponse, saveTokens } from "../services/api";
 import App from "../App";
-import { demoMap } from "../demo";
-import { summarize } from "../parking";
+import { demoMap } from "../services/demo";
+import { summarize } from "../services/parking";
 
 const initial: ScenarioState = {
   scenario: "arrival", run_id: "lab-run", cursor: 0, time: "2026-10-14T10:00:00Z",

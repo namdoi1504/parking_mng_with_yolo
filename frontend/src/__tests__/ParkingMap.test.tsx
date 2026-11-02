@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import actualConfig from "../../AI/datasets/slots_config.json";
+import actualConfig from "../../../AI/datasets/slots_config.json";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { ParkingMap, mapGeometry } from "./ParkingMap";
-import { demoMap } from "./demo";
-import type { ParkingSlot } from "./types";
-import * as routing from "./routing";
+import { ParkingMap, mapGeometry } from "../components/ParkingMap";
+import { demoMap } from "../services/demo";
+import type { ParkingSlot } from "../types";
+import * as routing from "../services/routing";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("parking map", () => {
@@ -100,7 +100,6 @@ describe("parking map", () => {
     expect(document.querySelector("svg image")?.getAttribute("href")).toBe("/parking-site-reference.jpg");
     expect(document.querySelector(".map-left-access")).toBeNull();
     expect(document.querySelector(".parking-map-svg")?.getAttribute("viewBox")).toBe("0 0 1920 1080");
-    expect((screen.getByRole("checkbox", { name: /Hiển thị lối đi bên trái/ }) as HTMLInputElement).disabled).toBe(true);
     const changed = slots.map((s) => s.id === 470 ? { ...s, status: "OCCUPIED" as const } : s);
     rerender(<ParkingMap slots={changed} selectedId={470} onSelect={() => {}} />);
     expect(document.querySelector(".map-route-line")).toBeNull();

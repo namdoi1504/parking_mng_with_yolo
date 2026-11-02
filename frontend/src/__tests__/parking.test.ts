@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isAvailable, summarize } from "./parking";
-import type { ParkingSlot, SlotStatus } from "./types";
+import { isAvailable, summarize } from "../services/parking";
+import type { ParkingSlot, SlotStatus } from "../types";
 const slot = (id: number, status: SlotStatus): ParkingSlot => ({ id, status, camera_id: 1, slot_code: String(id), row: 0, col: id, roi_coordinates: [], updated_at: "2026-09-30T00:00:00Z" });
 describe("parking summaries", () => {
   it("counts all backend statuses independently", () => {

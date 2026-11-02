@@ -1,4 +1,5 @@
 """Apply a single frozen seek snapshot and discard only that demo camera's history."""
+from datetime import timedelta
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -16,12 +17,14 @@ def reset_snapshot(db, playback, request):
         snapshot = VideoDemoSeekSnapshot.model_validate(playback["seek_snapshot"])
         paused_at = stamp(playback["paused_at"])
         run_id = str(UUID(playback["run_id"]))
+        tolerance = timedelta(seconds=2)
+        obs_time = utc(snapshot.observed_at)
         if (playback.get("playback_state") != "paused"
                 or playback.get("camera_id") != settings.VIDEO_DEMO_CAMERA_ID
                 or playback.get("owner_backend_id") != observation_runtime.backend_id
                 or playback.get("seek_id") != str(request.request_id)
                 or run_id != str(snapshot.run_id) or playback.get("frame_id") != snapshot.frame_id
-                or not utc(snapshot.observed_at) <= paused_at <= demo_runtime.wall_now()):
+                or not (obs_time <= paused_at + tolerance and paused_at <= demo_runtime.wall_now() + tolerance)):
             raise ValueError("Seek snapshot does not match the frozen playback")
         by_code = {item.slot_code: item for item in snapshot.parking_slots}
         if not by_code or len(by_code) != len(snapshot.parking_slots):

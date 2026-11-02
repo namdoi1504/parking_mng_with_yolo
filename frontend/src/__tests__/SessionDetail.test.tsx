@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { SessionDetail } from "./SessionDetail";
-import { apiFetch } from "./api";
-import { demoMap } from "./demo";
-import type { ParkingSession } from "./types";
-vi.mock("./api", () => ({ apiFetch: vi.fn(), isDemoMode: () => false }));
+import { SessionDetail } from "../components/SessionDetail";
+import { apiFetch } from "../services/api";
+import { demoMap } from "../services/demo";
+import type { ParkingSession } from "../types";
+vi.mock("../services/api", () => ({ apiFetch: vi.fn(), isDemoMode: () => false }));
 const session: ParkingSession = { id: 42, parking_slot_id: 1, customer_name: "Nguyễn An", phone_number: "0901234567", license_plate: "30A12345", is_active: true, created_by: 1, created_at: "2026-10-14T09:00:00Z" };
 const slot = { ...demoMap.slots[0], status: "RESERVED" as const, active_session_id: 42 };
 beforeEach(() => {

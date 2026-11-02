@@ -1,28 +1,60 @@
 import { ZoneStatisticsPage } from "./ZoneStatisticsPage";
-import { isScenarioMode } from "../scenarioMode";
-import { useEffect, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
-import { apiFetch, getClaims, isDemoMode } from "../api";
+import { isScenarioMode } from "../services/scenarioMode";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  BarChart3,
+  Calendar,
+  Camera,
+  CheckCircle2,
+  Clock,
+  Download,
+  Info,
+  Layers,
+  LayoutGrid,
+  RefreshCw,
+  TrendingUp,
+} from "lucide-react";
+import { apiFetch, getClaims, isDemoMode } from "../services/api";
 import { AppShell, EmptyState } from "../components";
-import { demoCameras, demoHourly } from "../demo";
-import type { Camera, DailyStat, HourlyStat, Page, ParkingMap } from "../types";
+import { demoCameras, demoHourly } from "../services/demo";
+import type { Camera as CameraModel, DailyStat, HourlyStat, Page, ParkingMap } from "../types";
 
 export const REPORT_OFFSET_MINUTES = 420;
 export function reportDate(now = new Date()) {
   return new Date(now.getTime() + REPORT_OFFSET_MINUTES * 60000).toISOString().slice(0, 10);
 }
 
-function HistoricalStatisticsPage({ viewSwitcher }: { viewSwitcher: import("react").ReactNode }) {
+function HistoricalStatisticsPage({ viewSwitcher }: { viewSwitcher: ReactNode }) {
   const today = reportDate();
   const [mode, setMode] = useState<"hourly" | "daily">("hourly");
-  const [date, setDate] = useState(today), [from, setFrom] = useState(today), [to, setTo] = useState(today);
-  const [camera, setCamera] = useState(""), [cameras, setCameras] = useState<number[]>([]);
-  const [result, setResult] = useState<{ key: string; rows: (HourlyStat | DailyStat)[] }>({ key: "", rows: [] });
-  const [error, setError] = useState(""), [busy, setBusy] = useState(false), [refresh, setRefresh] = useState(0);
+  const [date, setDate] = useState(today);
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const [camera, setCamera] = useState("");
+  const [cameras, setCameras] = useState<number[]>([]);
+  const [result, setResult] = useState<{ key: string; rows: (HourlyStat | DailyStat)[] }>({
+    key: "",
+    rows: [],
+  });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [refresh, setRefresh] = useState(0);
   const [cameraError, setCameraError] = useState("");
+
   const rangeDays = (Date.parse(to) - Date.parse(from)) / 86400000;
-  const validation = mode === "hourly" ? (!date ? "Chọn ngày báo cáo." : "") :
-    (!from || !to || !Number.isFinite(rangeDays) ? "Chọn đầy đủ khoảng ngày." : rangeDays < 0 ? "Ngày kết thúc phải từ ngày bắt đầu trở đi." : rangeDays > 365 ? "Chọn khoảng tối đa 366 ngày." : "");
+  const validation =
+    mode === "hourly"
+      ? !date
+        ? "Chọn ngày báo cáo."
+        : ""
+      : !from || !to || !Number.isFinite(rangeDays)
+      ? "Chọn đầy đủ khoảng ngày."
+      : rangeDays < 0
+      ? "Ngày kết thúc phải từ ngày bắt đầu trở đi."
+      : rangeDays > 365
+      ? "Chọn khoảng tối đa 366 ngày."
+      : "";
+
   const params = new URLSearchParams(mode === "hourly" ? { date } : { from, to });
   params.set("utc_offset_minutes", String(REPORT_OFFSET_MINUTES));
   if (camera) params.set("camera_id", camera);
@@ -37,110 +69,435 @@ function HistoricalStatisticsPage({ viewSwitcher }: { viewSwitcher: import("reac
       const init = { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) };
       if (getClaims()?.permissions.includes("camera:view")) {
         const ids: number[] = [];
-        let page = 1, totalPages = 1;
+        let page = 1;
+        let totalPages = 1;
         do {
-          const result = await apiFetch<Page<Camera>>(`/cameras/?page=${page}&page_size=100`, init);
-          ids.push(...result.data.map((item) => item.id)); totalPages = result.meta.total_pages; page++;
+          const result = await apiFetch<Page<CameraModel>>(`/cameras/?page=${page}&page_size=100`, init);
+          ids.push(...result.data.map((item) => item.id));
+          totalPages = result.meta.total_pages;
+          page++;
         } while (active && page <= totalPages);
         return ids;
       }
       const map = await apiFetch<ParkingMap>("/api/ai/map", init);
       return map.slots.map((slot) => slot.camera_id);
     }
-    void cameraIds().then((ids) => { if (active) setCameras([...new Set(ids)].sort((a, b) => a - b)); })
-      .catch(() => { if (active) setCameraError("Không tải được danh sách camera; vẫn có thể xem báo cáo toàn bãi."); });
-    return () => { active = false; controller.abort(); };
+    void cameraIds()
+      .then((ids) => {
+        if (active) setCameras([...new Set(ids)].sort((a, b) => a - b));
+      })
+      .catch(() => {
+        if (active) setCameraError("Không tải được danh sách camera; vẫn có thể xem báo cáo toàn bãi.");
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
+
   useEffect(() => {
-    if (validation) { setBusy(false); return; }
+    if (validation) {
+      setBusy(false);
+      return;
+    }
     let active = true;
     const controller = new AbortController();
     let refreshTimer: number | undefined;
-    setBusy(true); setError(""); setResult({ key: path, rows: [] });
+    setBusy(true);
+    setError("");
+    setResult({ key: path, rows: [] });
+
     async function load() {
       try {
-        const data = isDemoMode() ? mode === "hourly" ? demoHourly : Array.from({ length: rangeDays + 1 }, (_, index) => ({
-          date: new Date(Date.parse(from) + index * 86400000).toISOString().slice(0, 10), avg_utilization: 65, samples: 24
-        })) : await apiFetch<(HourlyStat | DailyStat)[]>(path, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) });
+        const data = isDemoMode()
+          ? mode === "hourly"
+            ? demoHourly
+            : Array.from({ length: rangeDays + 1 }, (_, index) => ({
+                date: new Date(Date.parse(from) + index * 86400000).toISOString().slice(0, 10),
+                avg_utilization: 65,
+                samples: 24,
+              }))
+          : await apiFetch<(HourlyStat | DailyStat)[]>(path, {
+              signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+            });
         if (active) setResult({ key: path, rows: data });
-      } catch (reason) { if (active) setError(reason instanceof Error ? reason.message : "Không tải được báo cáo"); }
-      finally {
+      } catch (reason) {
+        if (active) setError(reason instanceof Error ? reason.message : "Không tải được báo cáo");
+      } finally {
         if (active) {
           setBusy(false);
           const currentDay = reportDate();
-          if (mode === "hourly" ? date === currentDay : from <= currentDay && to >= currentDay) refreshTimer = window.setTimeout(() => void load(), 60000);
+          if (mode === "hourly" ? date === currentDay : from <= currentDay && to >= currentDay) {
+            refreshTimer = window.setTimeout(() => void load(), 60000);
+          }
         }
       }
     }
+
     void load();
-    return () => { active = false; controller.abort(); window.clearTimeout(refreshTimer); };
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearTimeout(refreshTimer);
+    };
   }, [path, validation, refresh]);
 
-  const points = rows.map((row) => "hour" in row ? { label: `${String(row.hour).padStart(2, "0")}:00`, value: row.utilization, samples: row.samples } : { label: row.date, value: row.avg_utilization, samples: row.samples });
-  const latestSample = rows.map((row) => row.last_sample_at).filter((value): value is string => !!value).sort().at(-1);
+  const points = rows.map((row) =>
+    "hour" in row
+      ? { label: `${String(row.hour).padStart(2, "0")}:00`, value: row.utilization, samples: row.samples }
+      : { label: row.date, value: row.avg_utilization, samples: row.samples }
+  );
+
+  const latestSample = rows
+    .map((row) => row.last_sample_at)
+    .filter((value): value is string => !!value)
+    .sort()
+    .at(-1);
+
   const valid = points.filter((point) => point.value != null);
-  const peak = valid.reduce<typeof points[number] | null>((best, point) => !best || point.value! > best.value! ? point : best, null);
+  const peak = valid.reduce<typeof points[number] | null>(
+    (best, point) => (!best || point.value! > best.value! ? point : best),
+    null
+  );
   const sampleCount = points.reduce((sum, point) => sum + point.samples, 0);
-  const average = valid.length ? `${Math.round(valid.reduce((sum, point) => sum + point.value!, 0) / valid.length)}%` : "—";
+  const average = valid.length
+    ? `${Math.round(valid.reduce((sum, point) => sum + point.value!, 0) / valid.length)}%`
+    : "—";
+
   function exportCsv() {
     if (!rows.length || busy || validation || error) return;
-    const csv = [mode === "hourly" ? "hour,occupied,available,utilization,samples" : "date,avg_utilization,samples",
-      ...rows.map((row) => "hour" in row ? `${row.hour},${row.occupied ?? ""},${row.available ?? ""},${row.utilization ?? ""},${row.samples}` : `${row.date},${row.avg_utilization ?? ""},${row.samples}`)].join("\n");
+    const csv = [
+      mode === "hourly" ? "hour,occupied,available,utilization,samples" : "date,avg_utilization,samples",
+      ...rows.map((row) =>
+        "hour" in row
+          ? `${row.hour},${row.occupied ?? ""},${row.available ?? ""},${row.utilization ?? ""},${row.samples}`
+          : `${row.date},${row.avg_utilization ?? ""},${row.samples}`
+      ),
+    ].join("\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    link.download = `parking-${mode}-${mode === "hourly" ? date : `${from}-${to}`}-${camera ? `camera-${camera}` : "all"}-utc-plus-7.csv`;
-    link.click(); URL.revokeObjectURL(link.href);
+    link.download = `parking-${mode}-${mode === "hourly" ? date : `${from}-${to}`}-${
+      camera ? `camera-${camera}` : "all"
+    }-utc-plus-7.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
   }
-  return <AppShell eyebrow="Thống kê" title="Thống kê bãi đỗ" actions={<>
-    <button className="secondary-button" disabled={busy || !!validation} onClick={() => setRefresh((old) => old + 1)}><RefreshCw size={17} />Làm mới</button>
-    <button className="primary-button" disabled={busy || !rows.length || !!error || !!validation} onClick={exportCsv}><Download size={17} />Xuất CSV</button>
-  </>}>
-    {viewSwitcher}
-    <div className="management-toolbar statistics-filters">
-      <div className="tab-switch"><button aria-pressed={mode === "hourly"} className={mode === "hourly" ? "active" : ""} onClick={() => setMode("hourly")}>Theo giờ</button><button aria-pressed={mode === "daily"} className={mode === "daily" ? "active" : ""} onClick={() => setMode("daily")}>Theo ngày</button></div>
-      {mode === "hourly" ? <label>Ngày báo cáo (UTC+7)<input type="date" required value={date} onChange={(e) => setDate(e.target.value)} /></label> : <>
-        <label>Từ ngày (UTC+7)<input type="date" required value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label>Đến ngày (UTC+7)<input type="date" required value={to} min={from} onChange={(e) => setTo(e.target.value)} /></label>
-      </>}
-      <label>Camera báo cáo<select value={camera} onChange={(e) => setCamera(e.target.value)}><option value="">Toàn bãi</option>{cameras.map((id) => <option key={id} value={id}>Camera #{id}</option>)}</select></label>
-    </div>
-    {(validation || error) && <div className="error-banner" role="alert">{validation || error}</div>}
-    <p className="supporting-text" role="status">Báo cáo theo giờ Việt Nam (UTC+7), tổng hợp mỗi 15 phút; không phải trạng thái tức thời. {latestSample ? `Mẫu gần nhất kết thúc lúc ${new Date(latestSample).toLocaleString("vi-VN", { timeZone: "Asia/Bangkok" })}.` : "Chưa có mốc tổng hợp trong khoảng đã chọn."} Dấu — là chưa có mẫu, không phải 0%.</p>
-    {cameraError && <p className="supporting-text" role="status">{cameraError}</p>}
-    <div className="metric-grid">
-      <article><span>MẪU THỐNG KÊ</span><strong>{sampleCount}</strong><small>Không phải số lượt xe ra / vào</small></article>
-      <article><span>LẤP ĐẦY CAO NHẤT</span><strong className="red">{peak ? `${peak.value}%` : "—"}</strong><small>{peak ? `${peak.label} UTC+7` : "Chưa có mẫu"}</small></article>
-      <article><span>TRUNG BÌNH THEO {mode === "hourly" ? "GIỜ" : "NGÀY"}</span><strong className="violet">{average}</strong><small>Dựa trên {valid.length} khoảng có dữ liệu</small></article>
-      <article><span>{mode === "hourly" ? "KHUNG GIỜ" : "NGÀY"} CAO ĐIỂM</span><strong className="green">{valid.filter((point) => point.value! >= 85).length}</strong><small>Ngưỡng từ 85% · múi giờ UTC+7</small></article>
-    </div>
-    <section className="panel chart-card" aria-busy={busy}>
-      <div className="chart-heading"><div><h2>Tỷ lệ lấp đầy theo {mode === "hourly" ? "khung giờ" : "ngày"}</h2><p>{camera ? `Camera #${camera}` : "Toàn bãi"} · Ngưỡng cao điểm từ 85%</p></div></div>
-      {points.length ? <div className={`bar-chart ${mode === "daily" ? "daily-chart" : ""}`}>{points.map((point) => <div className="bar-column" key={point.label} title={`${point.label}: ${point.value == null ? "Chưa có mẫu" : `${point.value}%`} · ${point.samples} mẫu`}>
-        <div className={`bar ${point.value != null && point.value >= 85 ? "peak" : ""}`} style={{ height: `${point.value ?? 0}%` }}><strong>{point.value == null ? "—" : `${point.value}%`}</strong></div><time>{point.label}</time>
-      </div>)}</div> : <EmptyState title={busy ? "Đang tải báo cáo" : "Chưa có dữ liệu báo cáo"} text="Chọn ngày và camera để xem thống kê." />}
-    </section>
-    <section className="panel data-table-wrap"><div className="table-heading"><b>Số liệu báo cáo</b><span>{sampleCount} mẫu · UTC+7</span></div>
-      <table><caption className="sr-only">Thống kê bãi đỗ theo {mode === "hourly" ? "giờ" : "ngày"}</caption><thead><tr><th>{mode === "hourly" ? "Giờ (UTC+7)" : "Ngày (UTC+7)"}</th>{mode === "hourly" && <><th>Có xe</th><th>Còn trống</th></>}<th>Tỷ lệ lấp đầy</th><th>Số mẫu</th></tr></thead><tbody>
-        {rows.map((row) => <tr key={"hour" in row ? row.hour : row.date}><td>{"hour" in row ? `${String(row.hour).padStart(2, "0")}:00` : row.date}</td>{"hour" in row && <><td>{row.samples ? row.occupied : "—"}</td><td>{row.samples ? row.available : "—"}</td></>}<td>{("hour" in row ? row.utilization : row.avg_utilization) == null ? "—" : `${"hour" in row ? row.utilization : row.avg_utilization}%`}</td><td>{row.samples}</td></tr>)}
-      </tbody></table>
-    </section>
-    <div className="stats-bottom"><section className="panel"><h2>Phân bố tải vận hành</h2>{[
-      { label: "Thấp hơn 40%", min: 0, max: 40, color: "green" },
-      { label: "Từ 40–69%", min: 40, max: 70, color: "blue" },
-      { label: "Từ 70–84%", min: 70, max: 85, color: "amber" },
-      { label: "Từ 85% trở lên", min: 85, max: 101, color: "red" }
-    ].map((band) => {
-      const count = valid.filter((point) => point.value! >= band.min && point.value! < band.max).length;
-      return <div className="progress-row" key={band.label}><span>{band.label}</span><b>{count} {mode === "hourly" ? "giờ" : "ngày"}</b><div><i className={band.color} style={{ width: `${valid.length ? count / valid.length * 100 : 0}%` }} /></div></div>;
-    })}</section><section className="panel insight-card"><span>ĐỘ PHỦ DỮ LIỆU</span><h2>{valid.length} / {mode === "hourly" ? 24 : validation ? "—" : rangeDays + 1} {mode === "hourly" ? "giờ" : "ngày"} có mẫu</h2><p>Dấu — nghĩa là chưa có dữ liệu. Trung bình trên giao diện tính theo các khoảng có mẫu; mẫu nhận diện không cung cấp số lượt ra vào hoặc thời gian gửi xe.</p></section></div>
-  </AppShell>;
+
+  return (
+    <AppShell
+      eyebrow="Thống kê"
+      title="Thống kê bãi đỗ"
+      actions={
+        <div className="stats-top-actions">
+          <button
+            className="secondary-button"
+            disabled={busy || !!validation}
+            onClick={() => setRefresh((old) => old + 1)}
+          >
+            <RefreshCw size={16} className={busy ? "spin" : ""} />
+            Làm mới
+          </button>
+          <button
+            className="primary-button"
+            disabled={busy || !rows.length || !!error || !!validation}
+            onClick={exportCsv}
+          >
+            <Download size={16} />
+            Xuất CSV
+          </button>
+        </div>
+      }
+    >
+      {viewSwitcher}
+
+      {/* FILTER TOOLBAR */}
+      <div className="panel statistics-modern-toolbar">
+        <div className="stats-filter-row">
+          <div className="tab-switch stats-mode-tabs" aria-label="Khung thời gian">
+            <button
+              type="button"
+              aria-pressed={mode === "hourly"}
+              className={`stats-mode-pill ${mode === "hourly" ? "active" : ""}`}
+              onClick={() => setMode("hourly")}
+            >
+              <Clock size={14} />
+              Theo giờ
+            </button>
+            <button
+              type="button"
+              aria-pressed={mode === "daily"}
+              className={`stats-mode-pill ${mode === "daily" ? "active" : ""}`}
+              onClick={() => setMode("daily")}
+            >
+              <Calendar size={14} />
+              Theo ngày
+            </button>
+          </div>
+
+          <div className="stats-date-inputs">
+            {mode === "hourly" ? (
+              <label className="stats-input-field">
+                <span>Ngày báo cáo (UTC+7)</span>
+                <input
+                  type="date"
+                  required
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </label>
+            ) : (
+              <>
+                <label className="stats-input-field">
+                  <span>Từ ngày (UTC+7)</span>
+                  <input
+                    type="date"
+                    required
+                    value={from}
+                    onChange={(e) => setFrom(e.target.value)}
+                  />
+                </label>
+                <label className="stats-input-field">
+                  <span>Đến ngày (UTC+7)</span>
+                  <input
+                    type="date"
+                    required
+                    value={to}
+                    min={from}
+                    onChange={(e) => setTo(e.target.value)}
+                  />
+                </label>
+              </>
+            )}
+
+            <label className="stats-input-field">
+              <span>Camera báo cáo</span>
+              <select value={camera} onChange={(e) => setCamera(e.target.value)}>
+                <option value="">Toàn bãi</option>
+                {cameras.map((id) => (
+                  <option key={id} value={id}>
+                    Camera #{id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="stats-notice-box" role="status">
+          <Info size={15} className="notice-icon" />
+          <span>
+            Báo cáo theo giờ Việt Nam (UTC+7), tổng hợp mỗi 15 phút; không phải trạng thái tức thời.{" "}
+            {latestSample
+              ? `Mẫu gần nhất kết thúc lúc ${new Date(latestSample).toLocaleString("vi-VN", {
+                  timeZone: "Asia/Bangkok",
+                })}.`
+              : "Chưa có mốc tổng hợp trong khoảng đã chọn."}{" "}
+            Dấu — là chưa có mẫu, không phải 0%.
+          </span>
+        </div>
+      </div>
+
+      {(validation || error) && <div className="error-banner" role="alert">{validation || error}</div>}
+      {cameraError && <p className="supporting-text" role="status">{cameraError}</p>}
+
+      {/* 4 REFINED METRIC KPI CARDS */}
+      <div className="statistics-kpi-grid">
+        <article className="stat-kpi-card">
+          <div className="stat-kpi-top">
+            <span className="stat-kpi-label">MẪU THỐNG KÊ</span>
+            <div className="stat-kpi-icon blue" aria-hidden="true">
+              <Layers size={17} />
+            </div>
+          </div>
+          <strong className="stat-kpi-value">{sampleCount}</strong>
+          <small className="stat-kpi-sub">Số mẫu tổng hợp (mỗi 15 phút)</small>
+        </article>
+
+        <article className="stat-kpi-card">
+          <div className="stat-kpi-top">
+            <span className="stat-kpi-label">LẤP ĐẦY CAO NHẤT</span>
+            <div className="stat-kpi-icon red" aria-hidden="true">
+              <TrendingUp size={17} />
+            </div>
+          </div>
+          <strong className="stat-kpi-value red">{peak ? `${peak.value}%` : "—"}</strong>
+          <small className="stat-kpi-sub">{peak ? `${peak.label} (Giờ cao điểm)` : "Chưa có mẫu"}</small>
+        </article>
+
+        <article className="stat-kpi-card">
+          <div className="stat-kpi-top">
+            <span className="stat-kpi-label">TRUNG BÌNH THEO {mode === "hourly" ? "GIỜ" : "NGÀY"}</span>
+            <div className="stat-kpi-icon violet" aria-hidden="true">
+              <BarChart3 size={17} />
+            </div>
+          </div>
+          <strong className="stat-kpi-value violet">{average}</strong>
+          <small className="stat-kpi-sub">Dựa trên {valid.length} khoảng có dữ liệu</small>
+        </article>
+
+        <article className="stat-kpi-card">
+          <div className="stat-kpi-top">
+            <span className="stat-kpi-label">{mode === "hourly" ? "KHUNG GIỜ" : "NGÀY"} CAO ĐIỂM</span>
+            <div className="stat-kpi-icon green" aria-hidden="true">
+              <CheckCircle2 size={17} />
+            </div>
+          </div>
+          <strong className="stat-kpi-value green">
+            {valid.filter((point) => point.value! >= 85).length}
+          </strong>
+          <small className="stat-kpi-sub">Ngưỡng từ 85% · múi giờ UTC+7</small>
+        </article>
+      </div>
+
+      {/* BAR CHART */}
+      <section className="panel chart-card" aria-busy={busy}>
+        <div className="chart-heading">
+          <div>
+            <h2>Tỷ lệ lấp đầy theo {mode === "hourly" ? "khung giờ" : "ngày"}</h2>
+            <p>{camera ? `Camera #${camera}` : "Toàn bãi"} · Ngưỡng cao điểm từ 85%</p>
+          </div>
+        </div>
+
+        {points.length ? (
+          <div className={`bar-chart ${mode === "daily" ? "daily-chart" : ""}`}>
+            {points.map((point) => (
+              <div
+                className="bar-column"
+                key={point.label}
+                title={`${point.label}: ${point.value == null ? "Chưa có mẫu" : `${point.value}%`} · ${point.samples} mẫu`}
+              >
+                <div
+                  className={`bar ${point.value != null && point.value >= 85 ? "peak" : ""}`}
+                  style={{ height: `${point.value ?? 0}%` }}
+                >
+                  <strong>{point.value == null ? "" : `${point.value}%`}</strong>
+                </div>
+                <time>{point.label}</time>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title={busy ? "Đang tải báo cáo" : "Chưa có dữ liệu báo cáo"}
+            text="Chọn ngày và camera để xem thống kê."
+          />
+        )}
+      </section>
+
+      {/* DATA TABLE */}
+      <section className="panel data-table-wrap">
+        <div className="table-heading">
+          <b>Số liệu báo cáo</b>
+          <span>{sampleCount} mẫu · UTC+7</span>
+        </div>
+        <table className="clean-table stats-data-table">
+          <caption className="sr-only">
+            Thống kê bãi đỗ theo {mode === "hourly" ? "giờ" : "ngày"}
+          </caption>
+          <thead>
+            <tr>
+              <th>{mode === "hourly" ? "Giờ (UTC+7)" : "Ngày (UTC+7)"}</th>
+              {mode === "hourly" && (
+                <>
+                  <th>Có xe</th>
+                  <th>Còn trống</th>
+                </>
+              )}
+              <th>Tỷ lệ lấp đầy</th>
+              <th>Số mẫu</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={"hour" in row ? row.hour : row.date}>
+                <td>{"hour" in row ? `${String(row.hour).padStart(2, "0")}:00` : row.date}</td>
+                {"hour" in row && (
+                  <>
+                    <td>{row.samples ? row.occupied : "—"}</td>
+                    <td>{row.samples ? row.available : "—"}</td>
+                  </>
+                )}
+                <td>
+                  {("hour" in row ? row.utilization : row.avg_utilization) == null
+                    ? "—"
+                    : `${"hour" in row ? row.utilization : row.avg_utilization}%`}
+                </td>
+                <td>{row.samples}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      {/* DISTRIBUTION & COVERAGE */}
+      <div className="stats-bottom">
+        <section className="panel">
+          <h2>Phân bố tải vận hành</h2>
+          {[
+            { label: "Thấp hơn 40%", min: 0, max: 40, color: "green" },
+            { label: "Từ 40–69%", min: 40, max: 70, color: "blue" },
+            { label: "Từ 70–84%", min: 70, max: 85, color: "amber" },
+            { label: "Từ 85% trở lên", min: 85, max: 101, color: "red" },
+          ].map((band) => {
+            const count = valid.filter((point) => point.value! >= band.min && point.value! < band.max).length;
+            return (
+              <div className="progress-row" key={band.label}>
+                <span>{band.label}</span>
+                <b>
+                  {count} {mode === "hourly" ? "giờ" : "ngày"}
+                </b>
+                <div>
+                  <i
+                    className={band.color}
+                    style={{ width: `${valid.length ? (count / valid.length) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </section>
+
+        <section className="panel insight-card">
+          <span>ĐỘ PHỦ DỮ LIỆU</span>
+          <h2>
+            {valid.length} / {mode === "hourly" ? 24 : validation ? "—" : rangeDays + 1}{" "}
+            {mode === "hourly" ? "giờ" : "ngày"} có mẫu
+          </h2>
+          <p>
+            Dấu — nghĩa là chưa có dữ liệu. Trung bình trên giao diện tính theo các khoảng có mẫu; mẫu
+            nhận diện không cung cấp số lượt ra vào hoặc thời gian gửi xe.
+          </p>
+        </section>
+      </div>
+    </AppShell>
+  );
 }
 
 export function StatisticsPage() {
   const [view, setView] = useState<"history" | "zones">(isScenarioMode() ? "zones" : "history");
-  const switcher = <div className="tab-switch statistics-view-tabs" aria-label="Loại thống kê">
-    <button aria-pressed={view === "history"} className={view === "history" ? "active" : ""} onClick={() => setView("history")}>Theo ngày / giờ</button>
-    <button aria-pressed={view === "zones"} className={view === "zones" ? "active" : ""} onClick={() => setView("zones")}>Hiện tại theo khu / cột / hàng</button>
-  </div>;
-  return view === "history" ? <HistoricalStatisticsPage viewSwitcher={switcher} /> : <ZoneStatisticsPage viewSwitcher={switcher} />;
+  const switcher = (
+    <div className="tab-switch statistics-view-tabs" aria-label="Loại thống kê">
+      <button
+        aria-pressed={view === "history"}
+        className={view === "history" ? "active" : ""}
+        onClick={() => setView("history")}
+      >
+        <BarChart3 size={15} />
+        Theo ngày / giờ
+      </button>
+      <button
+        aria-pressed={view === "zones"}
+        className={view === "zones" ? "active" : ""}
+        onClick={() => setView("zones")}
+      >
+        <LayoutGrid size={15} />
+        Thống kê theo phân khu
+      </button>
+    </div>
+  );
+  return view === "history" ? (
+    <HistoricalStatisticsPage viewSwitcher={switcher} />
+  ) : (
+    <ZoneStatisticsPage viewSwitcher={switcher} />
+  );
 }

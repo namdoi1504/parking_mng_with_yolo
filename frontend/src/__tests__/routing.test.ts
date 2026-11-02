@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import config from "../../AI/datasets/slots_config.json";
-import type { ParkingSlot } from "./types";
-import { SITE, calibrated } from "./siteLayout";
-import { allowedDirection, buildRoadNetwork, gridPoint, inside, onRoad, slotRoute } from "./routing";
+import config from "../../../AI/datasets/slots_config.json";
+import type { ParkingSlot } from "../types";
+import { SITE, calibrated } from "../services/siteLayout";
+import { allowedDirection, buildRoadNetwork, gridPoint, inside, onRoad, slotRoute } from "../services/routing";
 
 const slots: ParkingSlot[] = config.map((s) => ({ id: s.index + 1, camera_id: 1, slot_code: s.slot_code, status: "EMPTY", row: s.row, col: s.col, updated_at: "", roi_coordinates: s.points.map(([x, y]) => ({ x, y })) }));
 const network = buildRoadNetwork(slots);

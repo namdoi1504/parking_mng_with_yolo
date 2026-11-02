@@ -2,10 +2,10 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { apiFetch, getAccessToken, getClaims } from "./api";
-import { demoMap } from "./demo";
-import { PARKING_POLL_MS, useParkingMap } from "./useParkingMap";
-vi.mock("./api", () => ({ apiFetch: vi.fn(), getAccessToken: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false }));
+import { apiFetch, getAccessToken, getClaims } from "../services/api";
+import { demoMap } from "../services/demo";
+import { PARKING_POLL_MS, useParkingMap } from "../hooks/useParkingMap";
+vi.mock("../services/api", () => ({ apiFetch: vi.fn(), getAccessToken: vi.fn(), getClaims: vi.fn(), isDemoMode: () => false }));
 class TestSocket {
   static sockets: TestSocket[] = [];
   onopen?: () => void; onclose?: (event: { code: number }) => void; onmessage?: (event: { data: string }) => void;

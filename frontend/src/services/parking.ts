@@ -1,4 +1,4 @@
-import type { ParkingSlot, ParkingSummary } from "./types";
+import type { ParkingSlot, ParkingSummary } from "../types";
 export function isAvailable(slot: ParkingSlot) {
   return slot.status === "EMPTY" && slot.observation_ready === true && !slot.active_session_id && !slot.needs_reconciliation;
 }

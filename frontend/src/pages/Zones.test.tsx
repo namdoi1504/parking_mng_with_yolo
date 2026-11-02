@@ -6,13 +6,13 @@ import { MapPage } from "./MapPage";
 import { MonitorPage } from "./MonitorPage";
 import { LookupPage } from "./LookupPage";
 import { ZoneStatisticsPage } from "./ZoneStatisticsPage";
-import { demoMap } from "../demo";
-import { summarize } from "../parking";
+import { demoMap } from "../services/demo";
+import { summarize } from "../services/parking";
 import App from "../App";
-import { getAccessToken, getClaims } from "../api";
-vi.mock("../api", () => ({ getAccessToken: vi.fn(() => "test-token"), getClaims: vi.fn(() => ({ role: "Operator", permissions: [], user_id: 1 })), isDemoMode: () => false, apiFetch: vi.fn(), clearTokens: vi.fn() }));
-vi.mock("../useParkingMap", () => ({ connectionLabels: { polling: "Đang cập nhật" }, useParkingMap: () => ({ data: snapshot, error: "", busy: false, load: vi.fn(), connection: "polling", applySlot: vi.fn(), updatedAt: new Date(), events: [] }) }));
-vi.mock("../CameraStream", () => ({ CameraStream: ({ cameraId }: { cameraId: number }) => <section aria-label={`Video Camera ${cameraId}`} /> }));
+import { getAccessToken, getClaims } from "../services/api";
+vi.mock("../services/api", () => ({ getAccessToken: vi.fn(() => "test-token"), getClaims: vi.fn(() => ({ role: "Operator", permissions: [], user_id: 1 })), isDemoMode: () => false, apiFetch: vi.fn(), clearTokens: vi.fn() }));
+vi.mock("../hooks/useParkingMap", () => ({ connectionLabels: { polling: "Đang cập nhật" }, useParkingMap: () => ({ data: snapshot, error: "", busy: false, load: vi.fn(), connection: "polling", applySlot: vi.fn(), updatedAt: new Date(), events: [] }) }));
+vi.mock("../components/CameraStream", () => ({ CameraStream: ({ cameraId }: { cameraId: number }) => <section aria-label={`Video Camera ${cameraId}`} /> }));
 const slots = [
   { ...demoMap.slots[0], row: 0, col: 0 },
   { ...demoMap.slots[1], row: 5, col: 1, status: "EMPTY" as const },
@@ -69,11 +69,11 @@ describe("zone views", () => {
     expect(rows).toHaveLength(3); expect(within(rows[2]).getByText("50%")).toBeTruthy();
     expect(screen.getByText(/Đây là trạng thái hiện tại/)).toBeTruthy();
   });
-  it("switches statistics to raw columns and rows without mixing cameras", () => {
+  it("filters zone statistics by camera without mixing cameras", () => {
     render(<MemoryRouter initialEntries={["/statistics"]}><ZoneStatisticsPage viewSwitcher={null} /></MemoryRouter>);
-    fireEvent.change(screen.getByLabelText("Thống kê theo"), { target: { value: "col" } });
-    expect(screen.getByText("Cột 0")).toBeTruthy(); expect(screen.getByText("Cột 1")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Thống kê theo"), { target: { value: "row" } });
-    expect(screen.getByText("Hàng 0")).toBeTruthy(); expect(screen.getByText("Hàng 5")).toBeTruthy();
+    expect(screen.getByText("Khu 1")).toBeTruthy();
+    expect(screen.getByText("Khu 2")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Camera thống kê khu"), { target: { value: "1" } });
+    expect(screen.getByText("Khu 1")).toBeTruthy();
   });
 });

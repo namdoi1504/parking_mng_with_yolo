@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CameraStream } from "./CameraStream";
-import { apiFetch, apiResponse } from "./api";
-import { receiveMjpeg } from "./mjpeg";
+import { CameraStream } from "../components/CameraStream";
+import { apiFetch, apiResponse } from "../services/api";
+import { receiveMjpeg } from "../services/mjpeg";
 import { Profiler } from "react";
 import { act } from "@testing-library/react";
 
-vi.mock("./api", () => ({ apiFetch: vi.fn(), apiResponse: vi.fn() }));
-vi.mock("./mjpeg", () => ({ receiveMjpeg: vi.fn() }));
+vi.mock("../services/api", () => ({ apiFetch: vi.fn(), apiResponse: vi.fn(), getClaims: vi.fn(() => ({ role: "Administrator" })) }));
+vi.mock("../services/mjpeg", () => ({ receiveMjpeg: vi.fn() }));
 
 const status = { camera_id: 1, source_name: "parking_car.mp4", ready: true, running: true,
   frame_id: 5, frame_age_seconds: 0.1, updated_at: Date.now() / 1000,

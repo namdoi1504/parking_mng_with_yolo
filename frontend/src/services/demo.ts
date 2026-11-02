@@ -1,4 +1,4 @@
-import type { Camera, HourlyStat, ParkingMap, Permission, Role, User } from "./types";
+import type { Camera, HourlyStat, ParkingMap, Permission, Role, User } from "../types";
 
 const statuses = ["EMPTY", "OCCUPIED", "OCCUPIED", "RESERVED", "EMPTY", "UNKNOWN", "OCCUPIED", "OCCUPIED"] as const;
 export const demoMap: ParkingMap = {

@@ -1,5 +1,5 @@
 import { SITE, LEFT_ACCESS_PROPOSAL, asPoints, centroid } from "./siteLayout";
-import type { ParkingSlot, Point } from "./types";
+import type { ParkingSlot, Point } from "../types";
 
 export function inside(point: Point, polygon: Point[]): boolean {
   let result = false;
