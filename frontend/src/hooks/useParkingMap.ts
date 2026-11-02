@@ -9,7 +9,7 @@ import type { ParkingMap, ParkingSlot, SlotStatus } from "../types";
 export interface ParkingEvent { time: string; code: string; status: SlotStatus | null; camera: number }
 export const PARKING_POLL_MS = 5000;
 
-export function useParkingMap() {
+export function useParkingMap({ publicView = false }: { publicView?: boolean } = {}) {
   const [data, setData] = useState<ParkingMap | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,7 +28,7 @@ export function useParkingMap() {
     // Automatic snapshots must not flash or resize manual refresh controls.
     setBusy(!background || !previous.current);
     try {
-      const result = isDemoMode() ? demoMap : await apiFetch<ParkingMap>("/api/ai/map", { signal: controller.signal });
+      const result = isDemoMode() ? demoMap : await apiFetch<ParkingMap>("/api/ai/map", { signal: controller.signal, anonymous: publicView });
       if (!controller.signal.aborted && request.current === controller) {
         const observedAt = new Date();
         const oldSlots = new Map(previous.current?.slots.map((slot) => [slot.id, slot]) ?? []);
@@ -46,7 +46,7 @@ export function useParkingMap() {
         setError(controller.signal.aborted ? "API dữ liệu chưa phản hồi sau 10 giây. Tự thử lại theo chu kỳ; dữ liệu lần tải trước được giữ lại." : reason instanceof Error ? reason.message : "Không tải được bãi đỗ");
       }
     } finally { window.clearTimeout(timeout); if (request.current === controller) { request.current = null; setBusy(false); } }
-  }, []);
+  }, [publicView]);
   useEffect(() => {
     if (!isScenarioMode()) return;
     const refresh = () => {
@@ -57,7 +57,7 @@ export function useParkingMap() {
     return () => window.removeEventListener("scenario-changed", refresh);
   }, [load]);
   useEffect(() => {
-    if (isScenarioMode() || isDemoMode() || !getAccessToken() || !getClaims()?.permissions.includes("parking:view")) return;
+    if (publicView || isScenarioMode() || isDemoMode() || !getAccessToken() || !getClaims()?.permissions.includes("parking:view")) return;
     let stopped = false, socket: WebSocket | undefined;
     let retry: number | undefined, refresh: number | undefined;
     let delay = 1000, sessionChanged = false;
@@ -104,7 +104,7 @@ export function useParkingMap() {
     }
     connect();
     return () => { stopped = true; socketReady.current = false; window.clearTimeout(retry); window.clearTimeout(refresh); socket?.close(); };
-  }, [load]);
+  }, [load, publicView]);
   useEffect(() => {
     function cancel() { const current = request.current; request.current = null; current?.abort(); }
     void load(true);

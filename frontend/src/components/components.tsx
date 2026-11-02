@@ -33,8 +33,8 @@ export function AppShell({ children, title, eyebrow, actions, connection, connec
   const navigate = useNavigate();
   const location = useLocation();
   const pagePath = location.pathname.replace(/^\/scenarios(?=\/|$)/, "") || "/map";
-  const claims = getClaims();
-  const publicLookup = location.pathname === "/lookup" && !claims && !isDemoMode();
+  const publicLookup = location.pathname === "/lookup";
+  const claims = publicLookup ? null : getClaims();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false), [logoutError, setLogoutError] = useState("");
   async function logout() {

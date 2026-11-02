@@ -29,14 +29,13 @@ describe("zone views", () => {
     expect(screen.queryByLabelText("Bản đồ các ô đỗ")).toBeNull();
     expect(screen.queryByLabelText("Khu bãi đỗ")).toBeNull();
   });
-  it("merges lookup into the map for signed-in users and removes duplicate navigation", () => {
+  it("keeps lookup public even when the browser has a saved login", () => {
     render(<MemoryRouter initialEntries={["/lookup"]}><App /></MemoryRouter>);
-    expect(screen.getByRole("heading", { name: "Bản đồ bãi đỗ" })).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Tra cứu" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Tìm vị trí còn trống" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Điều hướng chính" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Khu bãi đỗ"), { target: { value: "1:column:2" } });
     fireEvent.click(screen.getByRole("button", { name: "Danh sách ô trống" }));
-    const list = screen.getByRole("region", { name: "Danh sách ô trống" });
-    expect(within(list).getAllByRole("button", { name: /Camera 1: Còn trống/ })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /Camera 1: Còn trống/ })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Tìm ô trống" }));
     expect(document.querySelector(".map-slot.selected")?.getAttribute("data-slot-id")).toBe(String(slots[1].id));
   });

@@ -34,7 +34,7 @@ export default function App() {
     <Route path="/sessions" element={<Protected><SessionsPage /></Protected>} />
     <Route path="/configuration" element={<Navigate to="/map" replace />} />
     <Route path="/statistics" element={<Protected><StatisticsPage /></Protected>} />
-    <Route path="/lookup" element={isDemoMode() || getAccessToken() ? <Navigate to="/map" replace /> : <LookupPage />} />
+    <Route path="/lookup" element={<LookupPage />} />
     <Route path="/access" element={<Protected><AccessPage /></Protected>} />
     <Route path="/management" element={<Protected><ManagementPage /></Protected>} />
     <Route path="*" element={<Navigate to={isDemoMode() || getAccessToken() ? "/monitor" : "/login"} replace />} />

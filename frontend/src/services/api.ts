@@ -98,7 +98,10 @@ async function waitForRefresh(pending: Promise<boolean>, signal?: AbortSignal | 
   finally { signal.removeEventListener("abort", onAbort); }
 }
 
-export async function apiResponse(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
+type ApiRequestInit = RequestInit & { anonymous?: boolean };
+
+export async function apiResponse(path: string, options: ApiRequestInit = {}, retry = true): Promise<Response> {
+  const { anonymous = false, ...init } = options;
   if (isScenarioMode()) {
     const headers = new Headers(init.headers);
     headers.delete("Authorization");
@@ -110,11 +113,12 @@ export async function apiResponse(path: string, init: RequestInit = {}, retry = 
   }
   const headers = apiHeaders(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const token = getAccessToken();
+  const token = anonymous ? null : getAccessToken();
   const revision = sessionRevision;
+  if (anonymous) headers.delete("Authorization");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers, signal: init.signal ?? AbortSignal.timeout(15000) });
-  if (response.status === 401 && path !== "/auth/login" && path !== "/auth/refresh" && retry) {
+  if (!anonymous && response.status === 401 && path !== "/auth/login" && path !== "/auth/refresh" && retry) {
     init.signal?.throwIfAborted();
     // Another request may have completed rotation while this 401 was in transit.
     const rotated = lastRotation?.from === token && lastRotation?.to === getAccessToken() &&
@@ -131,7 +135,7 @@ export async function apiResponse(path: string, init: RequestInit = {}, retry = 
   return response;
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
   const response = await apiResponse(path, init);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

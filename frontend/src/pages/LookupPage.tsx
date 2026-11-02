@@ -8,7 +8,7 @@ import { ParkingMap, SlotDetail } from "../components/ParkingMap";
 import { connectionLabels, useParkingMap } from "../hooks/useParkingMap";
 
 export function LookupPage() {
-  const { data, error, busy, load, connection } = useParkingMap();
+  const { data, error, busy, load, connection } = useParkingMap({ publicView: true });
   const [camera, setCamera] = useState(0);
   const [zoneId, setZoneId] = useState("");
   const [selectedId, setSelectedId] = useState<number>();
