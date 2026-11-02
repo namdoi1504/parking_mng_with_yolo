@@ -10,6 +10,8 @@ from fastapi.responses import Response, StreamingResponse
 from starlette.background import BackgroundTask
 
 from ..oauth2 import require_permission
+from ..config import settings
+from ..demo_runtime import demo_clock
 
 router = APIRouter(prefix="/ai-stream", tags=["AI video"],
                    dependencies=[Depends(require_permission("parking:view"))])
@@ -38,6 +40,8 @@ def status():
             data = json.loads(payload)
         except (ValueError, TimeoutError, OSError) as exc:
             raise HTTPException(502, "Invalid AI preview status") from exc
+    if settings.VIDEO_DEMO_ENABLED:
+        data["demo_clock"] = demo_clock.status()
     return Response(json.dumps(data), media_type="application/json",
                     headers={"Cache-Control": "no-store"})
 

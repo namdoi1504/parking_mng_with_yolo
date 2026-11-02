@@ -1,6 +1,7 @@
 """Loopback-only MJPEG preview for processed AI frames, not a production gateway."""
 
 import json
+import hmac
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +18,7 @@ class FrameStore:
         self.jpeg: bytes | None = None
         self.sequence = 0
         self.stopped = False
+        self.control = None
         self.metadata: dict[str, Any] = {
             "camera_id": camera_id, "source_name": source_name,
             "source_type": "VIDEO_FILE", "frame_id": 0, "updated_at": None,
@@ -38,8 +40,15 @@ class FrameStore:
     def status(self) -> dict[str, Any]:
         with self.condition:
             age = time.time() - self.metadata["updated_at"] if self.jpeg else None
-            return {**self.metadata, "ready": self.jpeg is not None,
+            result = {**self.metadata, "ready": self.jpeg is not None,
                     "running": not self.stopped, "frame_age_seconds": age}
+        result.update(self.control.status() if self.control else
+                      {"control_enabled": False, "playback_state": "starting"})
+        if result.get("analysis_age_ms") is not None and age is not None:
+            result["analysis_age_ms"] += age * 1000
+        if result["playback_state"] == "paused":
+            result.update(fps=0, video_fps=0, paused_snapshot_age_seconds=age)
+        return result
 
     def stop(self) -> None:
         with self.condition:
@@ -47,7 +56,7 @@ class FrameStore:
             self.condition.notify_all()
 
 
-def create_server(store: FrameStore, port: int = 8001) -> ThreadingHTTPServer:
+def create_server(store: FrameStore, port: int = 8001, control_token: str = "") -> ThreadingHTTPServer:
     viewers = threading.BoundedSemaphore(4)
 
     class Handler(BaseHTTPRequestHandler):
@@ -84,6 +93,41 @@ def create_server(store: FrameStore, port: int = 8001) -> ThreadingHTTPServer:
             except (BrokenPipeError, ConnectionResetError, TimeoutError):
                 return
 
+        def do_POST(self) -> None:
+            if urlsplit(self.path).path != "/control":
+                self.reply(404, "text/plain", b"Not found")
+                return
+            if not control_token or not hmac.compare_digest(
+                    self.headers.get("X-Demo-Control", ""), control_token):
+                self.reply(403, "text/plain", b"Invalid demo control token")
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 4096:
+                    raise ValueError("Invalid command length")
+                self.connection.settimeout(5)
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict) or not isinstance(body.get("backend_id"), str) or not body["backend_id"]:
+                    raise ValueError("backend_id required")
+                snapshot = store.status()
+                if not store.control or not snapshot["running"] or not snapshot["ready"]:
+                    raise ValueError("AI is not ready")
+                action = body.get("action")
+                result = store.control.command(action, body["backend_id"],
+                    seconds=body.get("seconds"), request_id=body.get("request_id"))
+                if action == "confirm-seek":
+                    store.sync_result(True)
+                payload = store.status()
+                if action == "seek":
+                    payload["seek_snapshot"] = result["seek_snapshot"]
+                self.reply(200, "application/json", json.dumps(payload).encode())
+            except (ValueError, TypeError) as exc:
+                self.reply(409, "application/json", json.dumps({"detail": str(exc)}).encode())
+            except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                return
+            except Exception:
+                self.reply(503, "application/json", b'{"detail":"Playback command failed"}')
+
         def stream(self) -> None:
             if not viewers.acquire(blocking=False):
                 self.reply(503, "text/plain", b"Too many preview viewers")
@@ -102,10 +146,10 @@ def create_server(store: FrameStore, port: int = 8001) -> ThreadingHTTPServer:
                 while True:
                     with store.condition:
                         store.condition.wait_for(lambda: store.stopped or store.sequence != previous,
-                                                 timeout=10)
+                                                 timeout=1)
                         if store.stopped:
                             break
-                        if store.sequence == previous:
+                        if store.sequence == previous and not (store.control and store.control.blocked):
                             continue
                         jpeg, previous = store.jpeg, store.sequence
                     if jpeg:

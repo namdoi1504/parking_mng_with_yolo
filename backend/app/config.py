@@ -1,5 +1,5 @@
 from pathlib import Path
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,15 @@ class Settings(BaseSettings):
     RESERVATION_SWEEP_SECONDS: int = Field(default=1, ge=1, le=60)
     OBSERVATION_MAX_AGE_SECONDS: float = Field(default=15, gt=0, le=300)
     PARKING_CACHE_TTL_SECONDS: float = Field(default=30, ge=0, le=300)
+    VIDEO_DEMO_ENABLED: bool = False
+    VIDEO_DEMO_CAMERA_ID: int = Field(default=1, gt=0)
+    VIDEO_DEMO_CONTROL_TOKEN: str = ""
+
+    @model_validator(mode="after")
+    def demo_control_token(self):
+        if self.VIDEO_DEMO_ENABLED and len(self.VIDEO_DEMO_CONTROL_TOKEN) < 32:
+            raise ValueError("Video demo requires VIDEO_DEMO_CONTROL_TOKEN of at least 32 characters")
+        return self
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: [
         "http://localhost:5173", "http://127.0.0.1:5173",
     ])

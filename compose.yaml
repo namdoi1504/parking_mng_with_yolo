@@ -10,7 +10,7 @@ services:
     volumes:
       - parking_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test: [ "CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\"" ]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -27,6 +27,9 @@ services:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
       STATS_SCHEDULER_ENABLED: "true"
       RESERVATION_SCHEDULER_ENABLED: "true"
+      VIDEO_DEMO_ENABLED: "true"
+      VIDEO_DEMO_CAMERA_ID: "1"
+      VIDEO_DEMO_CONTROL_TOKEN: ${VIDEO_DEMO_CONTROL_TOKEN:?Set VIDEO_DEMO_CONTROL_TOKEN}
       CORS_ORIGINS: '["http://localhost:${FRONTEND_PORT:-8080}","http://127.0.0.1:${FRONTEND_PORT:-8080}","https://parking-mng-with-yolo.pages.dev"]'
     depends_on:
       db:
@@ -55,7 +58,6 @@ services:
     restart: unless-stopped
 
   ai:
-    profiles: ["ai"]
     build:
       context: .
       dockerfile: AI/Dockerfile
@@ -90,7 +92,10 @@ services:
           create_host_path: false
     environment:
       VIDEO_PLAYBACK_SPEED: ${VIDEO_PLAYBACK_SPEED:-0.3333333333}
+      VIDEO_DEMO_ENABLED: "true"
+      VIDEO_DEMO_CONTROL_TOKEN: ${VIDEO_DEMO_CONTROL_TOKEN:?Set VIDEO_DEMO_CONTROL_TOKEN}
     init: true
+    restart: unless-stopped
 
 volumes:
   parking_data:

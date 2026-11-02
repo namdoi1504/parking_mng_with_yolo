@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
-from uuid import UUID
+from uuid import UUID, uuid4
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -335,6 +336,67 @@ class AIParkingStatusRequest(BaseModel):
         if len(codes) != len(set(codes)):
             raise ValueError("Duplicate slot codes")
         return self
+
+
+class VideoDemoPlayback(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    camera_id: int
+    run_id: UUID | None = None
+    running: bool
+    ready: bool
+    control_enabled: bool
+    playback_state: Literal["starting", "playing", "pausing", "paused", "seeking"]
+    owner_backend_id: str | None = None
+    pause_id: str | None = None
+    paused_at: datetime | None = None
+    resumed_at: datetime | None = None
+    duration_seconds: float | None = None
+    seek_id: UUID | None = None
+    seek_ready: bool = True
+    seek_seconds: float | None = None
+
+
+class VideoDemoClockStatus(BaseModel):
+    enabled: bool
+    backend_id: str
+    business_time: datetime
+    wall_time: datetime
+    paused: bool
+    healthy: bool
+    excluded_pause_seconds: float
+    run_id: UUID | None = None
+    playback_state: str
+    seeking: bool = False
+
+
+class VideoDemoStatus(BaseModel):
+    playback: VideoDemoPlayback
+    clock: VideoDemoClockStatus
+
+
+class VideoDemoSeekRequest(BaseModel):
+    seconds: float = Field(ge=0, allow_inf_nan=False)
+    request_id: UUID = Field(default_factory=uuid4)
+
+
+class VideoDemoSeekSnapshot(BaseModel):
+    run_id: UUID
+    frame_id: int = Field(gt=0)
+    observed_at: datetime
+    parking_slots: list[ParkingSlotDetection]
+
+    @field_validator("observed_at")
+    @classmethod
+    def timezone_required(cls, value):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("Seek snapshot requires timezone")
+        return value
+
+
+class VideoDemoSeekResult(VideoDemoStatus):
+    request_id: UUID
+    reset: dict[str, int]
+    replayed: bool = False
 
 
 class AIUpdateResult(BaseModel):

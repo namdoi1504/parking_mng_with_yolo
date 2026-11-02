@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.update(DATABASE_HOSTNAME="localhost", DATABASE_PORT="5432", DATABASE_PASSWORD="test",
                   DATABASE_NAME="test", DATABASE_USERNAME="test", SECRET_KEY="test-only-secret-key-" * 3,
                   ALGORITHM="HS256", STATS_SCHEDULER_ENABLED="false", RESERVATION_SCHEDULER_ENABLED="false")
+os.environ["VIDEO_DEMO_ENABLED"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient

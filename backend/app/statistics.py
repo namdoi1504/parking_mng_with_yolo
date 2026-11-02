@@ -5,6 +5,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from . import models
 from .db import SessionLocal
+from .demo_runtime import business_now, demo_clock, demo_operation_lock
+from .config import settings
 
 
 def utc(value):
@@ -12,9 +14,18 @@ def utc(value):
 
 
 def aggregate_stats(period_minutes=15, *, now=None, session_factory=SessionLocal):
+    if settings.VIDEO_DEMO_ENABLED:
+        with demo_operation_lock:
+            if demo_clock.seeking:
+                return 0
+            return _aggregate_stats(period_minutes, now=now, session_factory=session_factory)
+    return _aggregate_stats(period_minutes, now=now, session_factory=session_factory)
+
+
+def _aggregate_stats(period_minutes=15, *, now=None, session_factory=SessionLocal):
     if period_minutes <= 0 or 60 % period_minutes:
         raise ValueError("period_minutes must divide 60")
-    now = utc(now or datetime.now(timezone.utc))
+    now = utc(now or business_now())
     end = now.replace(minute=(now.minute // period_minutes) * period_minutes, second=0, microsecond=0)
     start = end - timedelta(minutes=period_minutes)
     snapshots = []

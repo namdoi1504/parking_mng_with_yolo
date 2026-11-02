@@ -8,10 +8,12 @@ from starlette.concurrency import run_in_threadpool
 from .config import settings
 from .db import SessionLocal
 from .oauth2 import authenticate_token
-from .routers import auth, parking, users, roles, permissions, cameras, stats, stream, parking_slots, parking_sessions
+from .routers import auth, parking, users, roles, permissions, cameras, stats, stream, parking_slots, parking_sessions, video_demo
 from .statistics import aggregate_stats
 from .services.parking_slots import expire_reservations
 from . import observation_runtime
+from .demo_runtime import demo_clock
+from .services.video_demo import refresh as refresh_demo, reset as reset_demo
 from .parking_cache import parking_cache
 from .websocket_manager import manager
 
@@ -19,11 +21,16 @@ from .websocket_manager import manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     observation_runtime.restart()
+    demo_clock.reset()
+    reset_demo()
     parking_cache.invalidate()
     scheduler = None
     stopping = False
-    if settings.STATS_SCHEDULER_ENABLED or settings.RESERVATION_SCHEDULER_ENABLED:
+    if settings.STATS_SCHEDULER_ENABLED or settings.RESERVATION_SCHEDULER_ENABLED or settings.VIDEO_DEMO_ENABLED:
         scheduler = AsyncIOScheduler(timezone="UTC")
+    if settings.VIDEO_DEMO_ENABLED:
+        scheduler.add_job(refresh_demo, "interval", seconds=2, id="demo-health",
+                          max_instances=1, coalesce=True)
     if settings.STATS_SCHEDULER_ENABLED:
         scheduler.add_job(aggregate_stats, "cron", minute="*/15", id="parking-stats",
                           max_instances=1, coalesce=True, misfire_grace_time=60)
@@ -65,7 +72,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "ngrok-skip-browser-warning"],
 )
-for route in (auth, users, roles, permissions, cameras, parking, stats, stream, parking_slots, parking_sessions):
+for route in (auth, users, roles, permissions, cameras, parking, stats, stream, parking_slots, parking_sessions, video_demo):
     app.include_router(route.router)
 
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, observation_runtime
 from ..config import settings
+from ..demo_runtime import business_now, demo_clock, demo_operation_lock
 from ..parking_cache import parking_cache
 from ..schemas import ParkingSlotResponse
 
@@ -21,7 +22,7 @@ def utc(value):
 
 
 def now_utc():
-    return datetime.now(timezone.utc)
+    return business_now()
 
 
 def active_session(db, slot_id):
@@ -31,6 +32,8 @@ def active_session(db, slot_id):
 
 def observation_ready(slot, now=None, camera=None):
     now = now or now_utc()
+    if settings.VIDEO_DEMO_ENABLED and not demo_clock.healthy():
+        return False
     return bool(slot.observed_at and slot.observation_backend_id == observation_runtime.backend_id
                 and (camera is None or slot.observation_run_id == camera.ai_run_id)
                 and 0 <= (utc(now) - utc(slot.observed_at)).total_seconds() <= settings.OBSERVATION_MAX_AGE_SECONDS)
@@ -201,6 +204,13 @@ def expire_reservations(*, now=None, session_factory=None):
 
 
 def manual_action(db: Session, slot_id, action, user_id, customer=None, *, now=None, expected_session_id=None):
+    if settings.VIDEO_DEMO_ENABLED:
+        with demo_operation_lock:
+            return _manual_action(db, slot_id, action, user_id, customer, now=now, expected_session_id=expected_session_id)
+    return _manual_action(db, slot_id, action, user_id, customer, now=now, expected_session_id=expected_session_id)
+
+
+def _manual_action(db: Session, slot_id, action, user_id, customer=None, *, now=None, expected_session_id=None):
     supplied_now = now
     messages = []
     try:

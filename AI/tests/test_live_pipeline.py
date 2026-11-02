@@ -24,6 +24,7 @@ class FakeCapture:
 
     def set(self, key, value):
         self.position = int(value)
+        return True
 
     def grab(self):
         self.position += 1
@@ -74,9 +75,14 @@ class PipelineTests(unittest.TestCase):
         video.start()
         try:
             first = video.get()
-            deadline = time.monotonic() + 2
-            while video.latest.epoch < 1 and time.monotonic() < deadline:
-                time.sleep(.01)
+            # A loop boundary can be crossed while the decoder skips source
+            # frames under load. Wait for both actual publications and a new
+            # epoch instead of assuming one implies the other.
+            with video.condition:
+                self.assertTrue(video.condition.wait_for(
+                    lambda: video.latest is not None
+                    and video.latest.sequence > first.sequence + 1
+                    and video.latest.epoch > first.epoch, timeout=5))
             later = video.get(first.sequence)
             self.assertGreater(later.sequence, first.sequence + 1)
             self.assertGreater(later.epoch, first.epoch)

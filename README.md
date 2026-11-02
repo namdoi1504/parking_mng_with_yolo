@@ -4,6 +4,17 @@ A parking monitoring system using YOLO for car detection, FastAPI/PostgreSQL for
 The detector locates cars; polygon-based regions of interest (ROIs) determine whether parking spaces are occupied.
 
 Docker Compose deployment (Vietnamese): [PostgreSQL, backend, frontend and CPU AI](docs/docker-deployment.md).
+Video pause/resume/seek backend and AI: [video API and single Docker stack](docs/video-demo-api.md).
+
+Run the complete Docker project (PostgreSQL, backend, frontend and AI):
+
+```powershell
+docker compose --env-file .env.docker up -d --build
+```
+
+Open http://localhost:8080; API docs: http://localhost:8000/docs.
+The existing `parking-mng` database is used for all video operations. Seeking
+resets that camera's sessions/events/statistics; see the video API guide.
 
 ## 1. Project Structure
 

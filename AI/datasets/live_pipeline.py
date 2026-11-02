@@ -35,11 +35,64 @@ class LatestVideo:
         self.condition = threading.Condition()
         self.stopping = threading.Event()
         self.latest: VideoFrame | None = None
+        self.paused_at: float | None = None
+        self.paused_seconds = 0.0
+        self._sequence = 0
+        self._seek_revision = 0
+        self._seek_origin = 0.0
+        self._seek_target = 0
+        self._seek_epoch = 0
         self.error: Exception | None = None
         self.thread = threading.Thread(target=self._decode, daemon=True)
 
     def start(self) -> None:
         self.thread.start()
+
+    def pause(self) -> None:
+        with self.condition:
+            if self.paused_at is None:
+                self.paused_at = time.perf_counter()
+            self.condition.notify_all()
+
+    def resume(self) -> None:
+        with self.condition:
+            if self.paused_at is not None:
+                self.paused_seconds += time.perf_counter() - self.paused_at
+                self.paused_at = None
+                self.latest = None  # Never analyze a buffered pre-pause frame.
+            self.condition.notify_all()
+
+    @property
+    def duration_seconds(self):
+        return self.total / self.fps if self.total else 0.0
+
+    def validate_seek(self, seconds):
+        if not isinstance(seconds, (int, float)) or isinstance(seconds, bool) or not math.isfinite(seconds):
+            raise ValueError("Seek position must be a finite number of seconds")
+        if not self.total or not 0 <= seconds < self.duration_seconds:
+            raise ValueError("Seek position must be within the video duration")
+
+    def seek(self, seconds):
+        self.validate_seek(seconds)
+        with self.condition:
+            if self.paused_at is None:
+                raise ValueError("Pause the decoder before seeking")
+            target = min(int(seconds * self.fps), self.total - 1)
+            if not self.cap.set(cv2.CAP_PROP_POS_FRAMES, target):
+                raise ValueError("Video source does not support seeking")
+            ok, image = self.cap.read()
+            if not ok:
+                raise ValueError("Cannot decode the requested video frame")
+            captured = time.perf_counter()
+            self._sequence += 1
+            self._seek_epoch = (self.latest.epoch if self.latest else self._seek_epoch) + 1
+            self._seek_revision += 1
+            self._seek_target = target
+            self._seek_origin = captured - target / self.playback_fps - self.paused_seconds
+            self.paused_at = captured
+            self.latest = VideoFrame(self._sequence, self._seek_epoch, target / self.fps, captured, image)
+            self.condition.notify_all()
+            return self.latest
 
     def get(self, previous: int = -1) -> VideoFrame | None:
         with self.condition:
@@ -57,36 +110,50 @@ class LatestVideo:
 
     def _decode(self) -> None:
         started = time.perf_counter()
-        sequence, epoch, last_tick = 0, -1, -1
+        revision, epoch, epoch_offset, last_tick = 0, -1, 0, -1
         try:
             while not self.stopping.is_set():
-                tick = int((time.perf_counter() - started) * self.playback_fps)
+                with self.condition:
+                    self.condition.wait_for(lambda: self.paused_at is None or self.stopping.is_set())
+                    if self.stopping.is_set():
+                        break
+                    if revision != self._seek_revision:
+                        revision = self._seek_revision
+                        started, last_tick = self._seek_origin, self._seek_target
+                        epoch = epoch_offset = self._seek_epoch
+                    origin = started + self.paused_seconds
+                tick = int((time.perf_counter() - origin) * self.playback_fps)
                 # Event.wait may wake just before the next frame deadline. Re-reading
                 # the same tick would seek backward into a compressed video GOP.
                 if tick <= last_tick:
-                    self.stopping.wait(max(.001, started + (last_tick + 1) / self.playback_fps
+                    self.stopping.wait(max(.001, origin + (last_tick + 1) / self.playback_fps
                                            - time.perf_counter()))
                     continue
-                current_epoch = tick // self.total if self.total else 0
-                target = tick % self.total if self.total else tick
-                position = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
-                if current_epoch != epoch or target < position or target - position > self.fps:
-                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, target)
-                else:
-                    for _ in range(max(0, target - position)):
-                        if not self.cap.grab():
-                            break
-                ok, image = self.cap.read()
-                if not ok:
-                    raise RuntimeError("Cannot decode video frame")
-                epoch = current_epoch
-                last_tick = tick
-                sequence += 1
-                sample = VideoFrame(sequence, epoch, target / self.fps, time.perf_counter(), image)
                 with self.condition:
-                    self.latest = sample
-                    self.condition.notify_all()
-                self.stopping.wait(max(0, started + (tick + 1) / self.playback_fps - time.perf_counter()))
+                    if (self.paused_at is not None or origin != started + self.paused_seconds
+                            or revision != self._seek_revision):
+                        continue
+                    current_epoch = epoch_offset + (tick // self.total if self.total else 0)
+                    target = tick % self.total if self.total else tick
+                    position = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
+                    if current_epoch != epoch or target < position or target - position > self.fps:
+                        self.cap.set(cv2.CAP_PROP_POS_FRAMES, target)
+                    else:
+                        for _ in range(max(0, target - position)):
+                            if not self.cap.grab():
+                                break
+                    ok, image = self.cap.read()
+                    if not ok:
+                        raise RuntimeError("Cannot decode video frame")
+                    epoch = current_epoch
+                    last_tick = tick
+                    self._sequence += 1
+                    sample = VideoFrame(self._sequence, epoch, target / self.fps, time.perf_counter(), image)
+                    with self.condition:
+                        if self.paused_at is None:
+                            self.latest = sample
+                            self.condition.notify_all()
+                self.stopping.wait(max(0, origin + (tick + 1) / self.playback_fps - time.perf_counter()))
         except Exception as error:
             with self.condition:
                 self.error = error

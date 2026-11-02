@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..db import get_db
 from ..config import settings
+from ..demo_runtime import demo_clock, wall_now
 from ..parking_cache import parking_cache
 from .. import models
 from ..services.parking_slots import (reconcile, slot_response, now_utc, utc, active_sessions, persist_observed_slots)
@@ -65,6 +66,8 @@ class SlotSyncResult(BaseModel):
     summary="AI engine đồng bộ danh sách slot với DB khi khởi động"
 )
 def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
+    if settings.VIDEO_DEMO_ENABLED and data.camera_id != settings.VIDEO_DEMO_CAMERA_ID:
+        raise HTTPException(409, "Video demo uses one dedicated camera/database")
     created = updated = unchanged = 0
     lock_camera_creation(db)
 
@@ -116,6 +119,7 @@ def sync_slots(data: SlotSyncRequest, db: Session = Depends(get_db)):
                 col = item.col,
                 row = item.row,
                 status          = None,
+                created_at      = now_utc(),
             ))
             created += 1
         else:
@@ -185,9 +189,16 @@ def apply_parking_status(data: AIParkingStatusRequest, db: Session):
             raise HTTPException(409, "AI run is not active; sync slots first")
         if data.sequence <= camera.ai_sequence:
             raise HTTPException(409, "Duplicate or out-of-order observation")
-        age = (now - observed_at).total_seconds()
+        age = (wall_now() - observed_at).total_seconds()
         if age < 0 or age > settings.OBSERVATION_MAX_AGE_SECONDS:
             raise HTTPException(409, "Observation is stale or in the future")
+        if settings.VIDEO_DEMO_ENABLED:
+            if data.camera_id != settings.VIDEO_DEMO_CAMERA_ID:
+                raise HTTPException(409, "Video demo camera mismatch")
+            try:
+                observed_at = demo_clock.observation_time(observed_at, data.run_id)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
         incoming_codes = [item.slot_code for item in data.parking_slots]
         rows = (db.query(models.ParkingSlot).filter(models.ParkingSlot.camera_id == camera.id,
                 models.ParkingSlot.slot_code.in_(incoming_codes)).order_by(models.ParkingSlot.id)
@@ -244,6 +255,7 @@ def get_parking_map(db: Session = Depends(get_db)):
     # Readiness can expire without a DB write; do not serve cached readiness forever.
     now = now_utc()
     slots = [item.model_copy(update={"observation_ready": bool(item.observation_ready and item.observed_at
+             and (not settings.VIDEO_DEMO_ENABLED or demo_clock.healthy())
              and 0 <= (now - utc(item.observed_at)).total_seconds() <= settings.OBSERVATION_MAX_AGE_SECONDS)})
              for item in snapshot.slots]
     available = sum(item.status == "EMPTY" and item.observation_ready and item.active_session_id is None and not item.needs_reconciliation

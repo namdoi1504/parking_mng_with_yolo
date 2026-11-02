@@ -17,6 +17,7 @@ from stream_server import FrameStore, create_server
 from roi_occupancy import ROIOccupancy
 from live_pipeline import LatestVideo, SlotRenderer
 from observation import ObservationStabilizer
+from playback_control import PlaybackControl
 
 # Folder containing this script
 HERE = Path(__file__).parent
@@ -39,6 +40,9 @@ SHOW_WINDOW      = True
 IMGSZ            = [1088, 1920]            
 STREAM_STORE: FrameStore | None = None
 SEND_LOCK = threading.Lock()
+LAST_SUCCESS = {}
+VIDEO_DEMO_ENABLED = os.environ.get("VIDEO_DEMO_ENABLED", "false").lower() == "true"
+CONTROL_TOKEN = os.environ.get("VIDEO_DEMO_CONTROL_TOKEN", "")
 
 
 
@@ -163,7 +167,7 @@ def detect_slot_status(
 
 
 
-def send_to_backend(slot_statuses: list[dict], camera_id: int, observed_at: str, sequence: int) -> None:
+def send_to_backend(slot_statuses: list[dict], camera_id: int, observed_at: str, sequence: int) -> bool:
     """Gửi HTTP POST về backend (chạy trong thread riêng để không block YOLO)."""
     payload = {
         "camera_id"    : camera_id,
@@ -184,6 +188,7 @@ def send_to_backend(slot_statuses: list[dict], camera_id: int, observed_at: str,
         if resp.status_code == 200:
             if STREAM_STORE:
                 STREAM_STORE.sync_result(True)
+            LAST_SUCCESS["observed_at"] = observed_at
             result = resp.json()
             print(
                 f"  Send {result['received_slots']} slot | "
@@ -191,6 +196,7 @@ def send_to_backend(slot_statuses: list[dict], camera_id: int, observed_at: str,
                 f"unknown={len(result['unknown_slots'])} | "
                 f"backend={time.perf_counter() - started:.2f}s"
             )
+            return True
         else:
             if STREAM_STORE:
                 STREAM_STORE.sync_result(False)
@@ -211,6 +217,8 @@ def send_to_backend(slot_statuses: list[dict], camera_id: int, observed_at: str,
         if STREAM_STORE:
             STREAM_STORE.sync_result(False)
         print(f"  Error: {e}")
+
+    return False
 
 
 def send_async(slot_statuses: list[dict], camera_id: int, observed_at: str) -> None:
@@ -262,6 +270,10 @@ def run_agent(show_window: bool = SHOW_WINDOW, playback_speed: float = VIDEO_PLA
 
     video = LatestVideo(VIDEO_SOURCE, playback_speed=playback_speed)
     print(f" Video playback: {playback_speed:.4f}x ({video.fps:.2f} source FPS)")
+    if STREAM_STORE:
+        with STREAM_STORE.condition:
+            STREAM_STORE.metadata.update(duration_seconds=video.duration_seconds, source_fps=video.fps,
+                                         total_frames=video.total, playback_speed=playback_speed)
     stabilizer = ObservationStabilizer(occupied_seconds=OCCUPIED_CONFIRM_SECONDS,
                                      empty_seconds=EMPTY_CONFIRM_SECONDS,
                                      max_gap_seconds=MAX_OBSERVATION_AGE_SECONDS)
@@ -271,52 +283,164 @@ def run_agent(show_window: bool = SHOW_WINDOW, playback_speed: float = VIDEO_PLA
     analysis_lock = threading.Lock()
     analysis = {}
     render_errors = []
+    last_sent, ai_fps = 0.0, 0.0
+    last_stamp = time.perf_counter()
+
+    def process_sample(sample, send_updates=True):
+        nonlocal last_sent, ai_fps, last_stamp, synced
+        inference_started = time.perf_counter()
+        # Keep input resolution and thresholds unchanged to preserve accuracy.
+        result = model.predict(sample.image, imgsz=IMGSZ, conf=.25, iou=.7,
+                               max_det=300, verbose=False, device=device)[0]
+        parkingmanager.boxes = result.boxes.xyxy if result.boxes is not None else None
+        roi_started = time.perf_counter()
+        statuses = occupancy.detect(parkingmanager.boxes)
+        confirmed_statuses = stabilizer.update(statuses, sample.captured_at, sample.epoch)
+        roi_ms = (time.perf_counter() - roi_started) * 1000
+        boxes = (parkingmanager.boxes.detach().cpu().numpy()
+                 if parkingmanager.boxes is not None else np.empty((0, 4)))
+        stamp = time.perf_counter()
+        instantaneous = 1 / max(stamp - last_stamp, .001)
+        ai_fps = instantaneous if not ai_fps else ai_fps * .8 + instantaneous * .2
+        last_stamp = stamp
+        with analysis_lock:
+            analysis.update(statuses=statuses, boxes=boxes, epoch=sample.epoch,
+                            sample=sample, confirmed=confirmed_statuses,
+                            captured_at=sample.captured_at, sequence=sample.sequence,
+                            media_seconds=round(sample.media_seconds, 2),
+                            roi_ms=round(roi_ms, 2), fps=round(ai_fps, 1),
+                            inference_ms=round((roi_started - inference_started) * 1000, 2))
+        if send_updates and time.perf_counter() - last_sent >= SEND_INTERVAL:
+            if not synced:
+                synced = sync_slots_with_backend(slot_config, CAMERA_ID)
+            # Slow inference must not send old frames as fresh evidence.
+            if synced and confirmed_statuses and time.perf_counter() - sample.captured_at < MAX_OBSERVATION_AGE_SECONDS:
+                observed_at = datetime.fromtimestamp(sample.captured_at + wall_offset, timezone.utc).isoformat()
+                send_async(confirmed_statuses, CAMERA_ID, observed_at)
+            last_sent = time.perf_counter()
+
+    def pause_frame():
+        global SEND_SEQUENCE
+        sample = video.latest
+        if sample is None:
+            raise ValueError("Wait for the first video frame before pausing")
+        with analysis_lock:
+            analyzed = analysis.get("sequence")
+        if analyzed != sample.sequence:
+            process_sample(sample)
+        # Drain an in-flight sender. No sender may start while work is locked.
+        with SEND_LOCK:
+            with analysis_lock:
+                current = analysis.copy()
+            confirmed = current.get("confirmed", [])
+            if confirmed and time.perf_counter() - sample.captured_at < MAX_OBSERVATION_AGE_SECONDS:
+                observed_at = datetime.fromtimestamp(sample.captured_at + wall_offset, timezone.utc).isoformat()
+                if LAST_SUCCESS.get("observed_at") != observed_at:
+                    SEND_SEQUENCE += 1
+                    send_to_backend(confirmed, CAMERA_ID, observed_at, SEND_SEQUENCE)
+        publish_frozen(sample, current)
+
+    def publish_frozen(sample, current):
+        if STREAM_STORE:
+            renderer = SlotRenderer(parkingmanager.json, slot_map, sample.image.shape)
+            display = renderer.draw(sample.image, current["statuses"], current["boxes"])
+            ok, encoded = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ok:
+                STREAM_STORE.publish(encoded.tobytes(), frame_id=sample.sequence,
+                    media_seconds=round(sample.media_seconds, 2), ai_frame_id=sample.sequence,
+                    ai_media_seconds=round(sample.media_seconds, 2),
+                    analysis_age_ms=round((time.perf_counter()-sample.captured_at)*1000, 1),
+                    analysis_stale=False, occupied=sum(s["status"] == "OCCUPIED" for s in current["statuses"]),
+                    empty=sum(s["status"] == "EMPTY" for s in current["statuses"]))
+
+    def resume_frames():
+        nonlocal last_sent, last_stamp
+        # A pause must not count toward occupancy confirmation time.
+        stabilizer.candidates.clear()
+        stabilizer.last_stamp = None
+        last_sent = 0.0
+        last_stamp = time.perf_counter()
+        with analysis_lock:
+            analysis.clear()
+
+    def seek_frame(seconds):
+        global AGENT_RUN_ID, SEND_SEQUENCE
+        # Drain the previous run before rotating identity, so an old sender can
+        # never publish under the new run ID.
+        with SEND_LOCK:
+            AGENT_RUN_ID = str(uuid4())
+            SEND_SEQUENCE = 0
+            LAST_SUCCESS.clear()
+            resume_frames()
+            sample = video.seek(seconds)
+            process_sample(sample, send_updates=False)
+            with analysis_lock:
+                current = analysis.copy()
+            if STREAM_STORE:
+                with STREAM_STORE.condition:
+                    STREAM_STORE.metadata["run_id"] = AGENT_RUN_ID
+                STREAM_STORE.sync_result(False)
+            publish_frozen(sample, current)
+            return {"run_id": AGENT_RUN_ID, "frame_id": sample.sequence,
+                    "observed_at": datetime.fromtimestamp(sample.captured_at + wall_offset, timezone.utc).isoformat(),
+                    "parking_slots": current["statuses"]}
+
+    control = PlaybackControl(video, pause_frame, resume_frames, enabled=VIDEO_DEMO_ENABLED, on_seek=seek_frame)
+    if STREAM_STORE:
+        STREAM_STORE.control = control
+
 
     def render_video():
         previous, renderer = -1, None
         last_stamp, video_fps = time.perf_counter(), 0.0
         try:
             while not stop.is_set():
+                if not control.wait(stop):
+                    continue
+                generation = control.generation
                 sample = video.get(previous)
                 if sample is None:
                     continue
-                previous = sample.sequence
-                if renderer is None:
-                    renderer = SlotRenderer(parkingmanager.json, slot_map, sample.image.shape)
-                with analysis_lock:
-                    current = analysis.copy()
-                age = time.perf_counter() - current.get("captured_at", 0)
-                fresh = current.get("epoch") == sample.epoch and age < 2
-                statuses = current.get("statuses", []) if fresh else []
-                # Do not show old vehicle boxes as if they belonged to this frame.
-                boxes = current.get("boxes", np.empty((0, 4))) if fresh and age < .3 else np.empty((0, 4))
-                render_started = time.perf_counter()
-                display = renderer.draw(sample.image, statuses, boxes)
-                render_ms = (time.perf_counter() - render_started) * 1000
-                if STREAM_STORE:
-                    encode_started = time.perf_counter()
-                    ok, encoded = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                    stamp = time.perf_counter()
-                    instantaneous = 1 / max(stamp - last_stamp, .001)
-                    video_fps = instantaneous if not video_fps else video_fps * .8 + instantaneous * .2
-                    last_stamp = stamp
-                    if ok:
-                        STREAM_STORE.publish(
-                            encoded.tobytes(), frame_id=sample.sequence,
-                            fps=current.get("fps", 0), video_fps=round(video_fps, 1),
-                            roi_device=str(device), roi_ms=current.get("roi_ms", 0),
-                            inference_ms=current.get("inference_ms", 0), render_ms=round(render_ms, 2),
-                            encode_ms=round((stamp - encode_started) * 1000, 2),
-                            analysis_age_ms=round(age * 1000, 1) if current else None,
-                            analysis_stale=not fresh, ai_frame_id=current.get("sequence"),
-                            ai_media_seconds=current.get("media_seconds"),
-                            media_seconds=round(sample.media_seconds, 2),
-                            occupied=sum(s["status"] == "OCCUPIED" for s in statuses),
-                            empty=sum(s["status"] == "EMPTY" for s in statuses))
-                if show_window:
-                    cv2.imshow("Parking Agent [Q de thoat]", display)
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
-                        stop.set()
+                with control.render:
+                    if control.blocked or generation != control.generation:
+                        continue
+                    previous = sample.sequence
+                    if renderer is None:
+                        renderer = SlotRenderer(parkingmanager.json, slot_map, sample.image.shape)
+                    with analysis_lock:
+                        current = analysis.copy()
+                    age = time.perf_counter() - current.get("captured_at", 0)
+                    fresh = current.get("epoch") == sample.epoch and age < 2
+                    statuses = current.get("statuses", []) if fresh else []
+                    # Do not show old vehicle boxes as if they belonged to this frame.
+                    boxes = current.get("boxes", np.empty((0, 4))) if fresh and age < .3 else np.empty((0, 4))
+                    render_started = time.perf_counter()
+                    display = renderer.draw(sample.image, statuses, boxes)
+                    render_ms = (time.perf_counter() - render_started) * 1000
+                    if STREAM_STORE:
+                        encode_started = time.perf_counter()
+                        ok, encoded = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        stamp = time.perf_counter()
+                        instantaneous = 1 / max(stamp - last_stamp, .001)
+                        video_fps = instantaneous if not video_fps else video_fps * .8 + instantaneous * .2
+                        last_stamp = stamp
+                        if ok:
+                            STREAM_STORE.publish(
+                                encoded.tobytes(), frame_id=sample.sequence,
+                                fps=current.get("fps", 0), video_fps=round(video_fps, 1),
+                                roi_device=str(device), roi_ms=current.get("roi_ms", 0),
+                                inference_ms=current.get("inference_ms", 0), render_ms=round(render_ms, 2),
+                                encode_ms=round((stamp - encode_started) * 1000, 2),
+                                analysis_age_ms=round(age * 1000, 1) if current else None,
+                                analysis_stale=not fresh, ai_frame_id=current.get("sequence"),
+                                ai_media_seconds=current.get("media_seconds"),
+                                media_seconds=round(sample.media_seconds, 2),
+                                occupied=sum(s["status"] == "OCCUPIED" for s in statuses),
+                                empty=sum(s["status"] == "EMPTY" for s in statuses))
+                    if show_window:
+                        cv2.imshow("Parking Agent [Q de thoat]", display)
+                        if cv2.waitKey(1) & 0xFF == ord("q"):
+                            stop.set()
         except Exception as error:
             render_errors.append(error)
             stop.set()
@@ -324,43 +448,20 @@ def run_agent(show_window: bool = SHOW_WINDOW, playback_speed: float = VIDEO_PLA
     video.start()
     renderer_thread = threading.Thread(target=render_video, daemon=True)
     renderer_thread.start()
-    last_sent, previous, ai_fps = 0.0, -1, 0.0
-    last_stamp = time.perf_counter()
+    previous = -1
     try:
         while not stop.is_set():
+            if not control.wait(stop):
+                continue
+            generation = control.generation
             sample = video.get(previous)
             if sample is None:
                 continue
             previous = sample.sequence
-            inference_started = time.perf_counter()
-            # Keep input resolution and thresholds unchanged to preserve accuracy.
-            result = model.predict(sample.image, imgsz=IMGSZ, conf=.25, iou=.7,
-                                   max_det=300, verbose=False, device=device)[0]
-            parkingmanager.boxes = result.boxes.xyxy if result.boxes is not None else None
-            roi_started = time.perf_counter()
-            statuses = occupancy.detect(parkingmanager.boxes)
-            confirmed_statuses = stabilizer.update(statuses, sample.captured_at, sample.epoch)
-            roi_ms = (time.perf_counter() - roi_started) * 1000
-            boxes = (parkingmanager.boxes.detach().cpu().numpy()
-                     if parkingmanager.boxes is not None else np.empty((0, 4)))
-            stamp = time.perf_counter()
-            instantaneous = 1 / max(stamp - last_stamp, .001)
-            ai_fps = instantaneous if not ai_fps else ai_fps * .8 + instantaneous * .2
-            last_stamp = stamp
-            with analysis_lock:
-                analysis.update(statuses=statuses, boxes=boxes, epoch=sample.epoch,
-                                captured_at=sample.captured_at, sequence=sample.sequence,
-                                media_seconds=round(sample.media_seconds, 2),
-                                roi_ms=round(roi_ms, 2), fps=round(ai_fps, 1),
-                                inference_ms=round((roi_started - inference_started) * 1000, 2))
-            if time.perf_counter() - last_sent >= SEND_INTERVAL:
-                if not synced:
-                    synced = sync_slots_with_backend(slot_config, CAMERA_ID)
-                # Slow inference must not send old frames as fresh evidence.
-                if synced and confirmed_statuses and time.perf_counter() - sample.captured_at < MAX_OBSERVATION_AGE_SECONDS:
-                    observed_at = datetime.fromtimestamp(sample.captured_at + wall_offset, timezone.utc).isoformat()
-                    send_async(confirmed_statuses, CAMERA_ID, observed_at)
-                last_sent = time.perf_counter()
+            with control.work:
+                if control.blocked or generation != control.generation:
+                    continue
+                process_sample(sample)
         if render_errors:
             raise RuntimeError("Preview renderer failed") from render_errors[0]
     finally:
@@ -380,9 +481,12 @@ def main() -> None:
     parser.add_argument("--playback-speed", type=float, default=VIDEO_PLAYBACK_SPEED)
     args = parser.parse_args()
     server = None
+    if VIDEO_DEMO_ENABLED and (not args.stream or len(CONTROL_TOKEN) < 32):
+        raise ValueError("Video demo requires --stream and VIDEO_DEMO_CONTROL_TOKEN of at least 32 characters")
     if args.stream:
         STREAM_STORE = FrameStore(CAMERA_ID, Path(VIDEO_SOURCE).name)
-        server = create_server(STREAM_STORE, args.stream_port)
+        STREAM_STORE.metadata["run_id"] = AGENT_RUN_ID
+        server = create_server(STREAM_STORE, args.stream_port, CONTROL_TOKEN if VIDEO_DEMO_ENABLED else "")
         threading.Thread(target=server.serve_forever, daemon=True).start()
         print(f"Local AI stream: http://127.0.0.1:{args.stream_port}/video")
     try:
