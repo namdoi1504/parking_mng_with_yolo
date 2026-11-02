@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { apiFetch, isDemoMode } from "../services/api";
-import { AppShell, EmptyState, InlineNotice, SummaryStrip } from "../components";
+import { AppShell, EmptyState, InlineNotice } from "../components";
 import { formatTime, SessionDetail, sessionLabels } from "../components/SessionDetail";
 import { useParkingMap } from "../hooks/useParkingMap";
 import type { Page, ParkingSession } from "../types";
