@@ -22,6 +22,10 @@ describe("public parking lookup from login", () => {
 
     expect(await screen.findByRole("heading", { name: "Tìm vị trí còn trống" })).toBeTruthy();
     expect(await screen.findByText(/ô trống tại camera đang chọn/)).toBeTruthy();
+    expect((screen.getByLabelText("Lọc trạng thái bản đồ") as HTMLSelectElement).value).toBe("ALL");
+    expect(document.querySelectorAll(".map-slot.dimmed")).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText("Lọc trạng thái bản đồ"), { target: { value: "RESERVED" } });
+    expect(document.querySelectorAll(".map-slot.status-RESERVED:not(.dimmed)").length).toBeGreaterThan(0);
     expect(screen.queryByRole("navigation", { name: "Điều hướng chính" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Giữ chỗ|Check-in/ })).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);

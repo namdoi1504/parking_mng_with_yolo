@@ -91,7 +91,7 @@ export function SessionDetail({ sessionId, slot, disabled = false, sessionRevisi
         </div>
       )}
       <h4>Lịch sử trạng thái</h4>
-      {events?.data.length ? <ol className="session-events">{events.data.map((event) => <li key={event.id}><time>{formatTime(event.event_time)}</time><span>{statusMeta[event.old_status ?? "UNINITIALIZED"].label} → {statusMeta[event.new_status].label}</span><small>Nguồn: {event.source}</small></li>)}</ol> : <p className="supporting-text">Chưa có sự kiện đổi trạng thái ô.</p>}
+      {events?.data.length ? <ol className="session-events" tabIndex={0} aria-label="Lịch sử trạng thái, cuộn để xem thêm">{events.data.map((event) => <li key={event.id}><time>{formatTime(event.event_time)}</time><span>{statusMeta[event.old_status ?? "UNINITIALIZED"].label} → {statusMeta[event.new_status].label}</span><small>Nguồn: {event.source}</small></li>)}</ol> : <p className="supporting-text">Chưa có sự kiện đổi trạng thái ô.</p>}
       {events && events.meta.total_pages > 1 && <div className="pagination"><button className="secondary-button" disabled={page <= 1} onClick={() => setPage(page - 1)}>Sự kiện trước</button><span>{page}/{events.meta.total_pages}</span><button className="secondary-button" disabled={page >= events.meta.total_pages} onClick={() => setPage(page + 1)}>Sự kiện sau</button></div>}
     </> : isDemoMode() ? <p className="supporting-text">Dữ liệu phiên không có trong bản minh họa.</p> : null}
     {actionError && <InlineNotice tone="error">{actionError}</InlineNotice>}

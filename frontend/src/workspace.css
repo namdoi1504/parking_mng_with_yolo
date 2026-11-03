@@ -448,6 +448,16 @@
 
 .app-shell .status-UNINITIALIZED { background: #e5eaf0; color: #596777; }
 .app-shell .map-slot.status-UNINITIALIZED polygon { fill: #e5eaf0; stroke: #8a98a8; }
+.lookup-map-layout .map-slot.status-OCCUPIED polygon { fill: #bfdbfe; stroke: #2563eb; }
+.lookup-map-layout .map-slot.status-OCCUPIED text { fill: #1e3a8a; }
+.lookup-map-layout .map-slot.status-RESERVED polygon { fill: #fde68a; stroke: #b45309; }
+.lookup-map-layout .map-slot.status-RESERVED text { fill: #78350f; }
+.lookup-map-layout .map-slot.dimmed { opacity: .45; }
+.lookup-map-layout .map-slot.selected, .lookup-map-layout .map-slot:hover,
+.lookup-map-layout .map-slot:focus-visible { opacity: 1; }
+.lookup-map-layout .map-slot.selected polygon,
+.lookup-map-layout .map-slot:hover polygon,
+.lookup-map-layout .map-slot:focus-visible polygon { stroke: #111827; stroke-width: 3; }
 .app-shell .customer-form { display: grid; gap: 12px; margin: 16px 0; }
 .app-shell .customer-form label, .app-shell .session-filters label { display: grid; gap: 6px; font-size: 13px; }
 .app-shell .customer-form input, .app-shell .session-filters input, .app-shell .session-filters select { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #cbd5df; border-radius: 8px; background: white; color: #18394c; }
@@ -456,7 +466,15 @@
 .app-shell .session-detail { min-width: 0; overflow-wrap: anywhere; }
 .app-shell .session-detail .detail-list { margin: 16px 0; }
 .app-shell .session-status { display: inline-block; padding: 6px 10px; background: #e8f2f8; color: #23506a; border-radius: 6px; font-weight: 600; }
-.app-shell .session-events { padding-left: 20px; }
+.app-shell .session-events {
+  max-height: min(280px, 40dvh);
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  padding-left: 24px;
+  padding-right: 8px;
+}
+.app-shell .session-events:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .app-shell .session-events li { margin: 12px 0; }
 .app-shell .session-events li > * { display: block; margin: 4px 0; }
 .app-shell .session-phone { display: block; margin-top: 5px; }
